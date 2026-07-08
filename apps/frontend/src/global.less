@@ -1,0 +1,301 @@
+/* Custom global styles to match the 9Router Proxy dark aesthetic */
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap');
+
+body {
+  margin: 0;
+  padding: 0;
+  font-family: 'Outfit', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  background-color: #161616 !important;
+  background-image: 
+    linear-gradient(rgba(255, 87, 34, 0.015) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 87, 34, 0.015) 1px, transparent 1px);
+  background-size: 24px 24px;
+  color: #b0b0b0;
+}
+
+/* Ant Design overrides for dark theme */
+.ant-layout {
+  background: transparent !important;
+}
+
+.ant-layout-sider,
+.ant-pro-sider,
+.ant-pro-layout-sider,
+.ant-layout-sider-wrapper,
+.ant-pro-sider-wrapper {
+  background-color: #1f1f1f !important;
+  border-right: 1px solid #262626 !important;
+  position: fixed !important;
+  top: 0 !important;
+  height: 100vh !important;
+  z-index: 101 !important;
+  margin-top: 0 !important;
+  overflow: visible !important; /* Let collapse arrow overflow */
+}
+
+/* Force hide all scrollbars inside the sidebar on all browser engines recursively */
+body .ant-layout-sider,
+body .ant-pro-sider,
+body .ant-pro-layout-sider,
+body .ant-layout-sider-wrapper,
+body .ant-pro-sider-wrapper {
+  scrollbar-width: none !important; /* Firefox */
+  -ms-overflow-style: none !important;  /* IE/Edge */
+  overflow: visible !important;
+}
+
+body .ant-layout-sider-children {
+  scrollbar-width: none !important;
+  -ms-overflow-style: none !important;
+  overflow: visible !important; /* Allow trigger inside children to overflow */
+}
+
+body .ant-layout-sider *,
+body .ant-pro-sider *,
+body .ant-pro-layout-sider *,
+body .ant-layout-sider-children * {
+  scrollbar-width: none !important; /* Firefox */
+  -ms-overflow-style: none !important;  /* IE/Edge */
+}
+
+body .ant-layout-sider::-webkit-scrollbar,
+body .ant-layout-sider *::-webkit-scrollbar,
+body .ant-pro-sider::-webkit-scrollbar,
+body .ant-pro-sider *::-webkit-scrollbar,
+body .ant-pro-layout-sider::-webkit-scrollbar,
+body .ant-pro-layout-sider *::-webkit-scrollbar,
+body .ant-layout-sider-children::-webkit-scrollbar,
+body .ant-layout-sider-children *::-webkit-scrollbar {
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
+}
+
+.ant-menu {
+  background: transparent !important;
+  border-inline-end: none !important;
+  padding-bottom: 24px !important;
+}
+
+.ant-menu-item {
+  color: #8c8c8c !important;
+  font-weight: 500;
+  margin: 4px 8px !important;
+  width: calc(100% - 16px) !important;
+  border-radius: 6px !important;
+  transition: all 0.3s ease;
+  
+  &:hover {
+    color: #ff7a45 !important;
+    background-color: rgba(255, 156, 110, 0.06) !important;
+  }
+}
+
+.ant-menu-item-selected {
+  background-color: rgba(255, 156, 110, 0.12) !important;
+  color: #ff7a45 !important;
+  font-weight: 600;
+  
+  &::after {
+    display: none !important;
+  }
+}
+
+/* Card customizations */
+.ant-card {
+  background-color: #1c1c1c !important;
+  border: 1px solid #2d2d2d !important;
+  border-radius: 12px !important;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4) !important;
+  
+  .ant-card-head {
+    border-bottom: 1px solid #2d2d2d !important;
+    color: #ffffff !important;
+    font-weight: 600;
+  }
+  
+  .ant-card-body {
+    color: #d9d9d9;
+  }
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: #121212;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #2d2d2d;
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #ff5722;
+}
+
+/* Glassmorphism elements */
+.glass-panel {
+  background: rgba(28, 28, 28, 0.8) !important;
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.05) !important;
+}
+
+/* Custom switch colors */
+.ant-switch-checked {
+  background: #ff5722 !important;
+}
+
+/* Button overrides */
+.ant-btn-primary {
+  background:  #ff835d !important;
+  border: none !important;
+  box-shadow: 0 2px 8px rgba(243, 67, 13, 0.525) !important;
+  
+  &:hover {
+    background: linear-gradient(135deg, #ff9c6e 0%, #ff7a45 100%) !important;
+    box-shadow: 0 4px 12px rgba(255, 87, 34, 0.5) !important;
+  }
+}
+
+/* Custom stats cards */
+.stat-card {
+  position: relative;
+  overflow: hidden;
+  
+  &::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 4px;
+    height: 100%;
+    background: #ff5722;
+  }
+}
+
+.stat-card.success::before {
+  background: #52c41a;
+}
+
+.stat-card.error::before {
+  background: #ff4d4f;
+}
+
+.stat-card.warning::before {
+  background: #faad14;
+}
+
+.stat-card.info::before {
+  background: #1890ff;
+}
+
+/* Terminal logs styling */
+.terminal-container {
+  background-color: #080808;
+  border: 1px solid #222;
+  border-radius: 8px;
+  font-family: 'Courier New', Courier, monospace;
+  padding: 16px;
+  color: #c0c0c0;
+  overflow-y: auto;
+  max-height: 250px;
+}
+
+@keyframes blink {
+  50% { opacity: 0; }
+}
+
+.terminal-cursor {
+  display: inline-block;
+  width: 7px;
+  height: 14px;
+  background-color: #e26f54;
+  margin-left: 4px;
+  animation: blink 1s step-start infinite;
+  vertical-align: middle;
+}
+
+/* Premium aesthetic: make content text and button backgrounds darker and more muted (except sidebar) */
+
+/* Softer base text inside layout content */
+.ant-layout-content {
+  color: #b0b0b0 !important;
+}
+
+/* Softer white text overrides in content area */
+.ant-layout-content h1,
+.ant-layout-content h2,
+.ant-layout-content h3,
+.ant-layout-content h4,
+.ant-layout-content h5,
+.ant-layout-content h6,
+.ant-layout-content .ant-typography,
+.ant-layout-content strong,
+.ant-layout-content span[style*="color: #fff"],
+.ant-layout-content span[style*="color: rgb(255, 255, 255)"],
+.ant-layout-content div[style*="color: #fff"],
+.ant-layout-content div[style*="color: rgb(255, 255, 255)"],
+.ant-layout-content strong[style*="color: #fff"] {
+  color: #c0c0c0 !important; /* Softer, muted white */
+}
+
+/* Mute explicit bright orange text and code blocks in content area to soft coral orange */
+.ant-layout-content span[style*="color: #ff7a45"],
+.ant-layout-content span[style*="color: rgb(255, 122, 69)"],
+.ant-layout-content div[style*="color: #ff7a45"],
+.ant-layout-content div[style*="color: rgb(255, 122, 69)"],
+.ant-layout-content code[style*="color: #ff7a45"],
+.ant-layout-content code[style*="color: rgb(255, 122, 69)"],
+.ant-layout-content span[style*="color: #ff5722"],
+.ant-layout-content span[style*="color: rgb(255, 87, 34)"],
+.ant-layout-content div[style*="color: #ff5722"],
+.ant-layout-content div[style*="color: rgb(255, 87, 34)"] {
+  color: #e26f54 !important; /* Premium soft coral orange */
+}
+
+/* Mute default buttons in content area (leaves sidebar buttons untouched) */
+.ant-layout-content .ant-btn {
+  background-color: #141414 !important;
+  border-color: #2a2a2a !important;
+  color: #a0a0a0 !important;
+  transition: all 0.2s ease !important;
+}
+
+.ant-layout-content .ant-btn:hover {
+  border-color: #e26f54 !important;
+  color: #e26f54 !important;
+}
+
+/* Primary buttons - styled exactly like the user's reference image */
+.ant-layout-content .ant-btn-primary {
+  background-color: #e26f54 !important; /* Soft coral orange */
+  border-color: #e26f54 !important;
+  color: #ffffff !important; /* Pure white text */
+  font-weight: 600 !important;
+}
+
+.ant-layout-content .ant-btn-primary:hover {
+  background-color: #e87f66 !important; /* Slightly brighter coral on hover */
+  border-color: #e87f66 !important;
+  color: #ffffff !important;
+}
+
+/* Mute secondary/default buttons with custom inline style (like Upload Raw Dataset button) */
+.ant-layout-content button[style*="color: #ff7a45"],
+.ant-layout-content button[style*="color: rgb(255, 122, 69)"] {
+  background-color: rgba(226, 111, 84, 0.05) !important;
+  color: #e26f54 !important;
+  border-color: #e26f54 !important;
+}
+
+.ant-layout-content button[style*="color: #ff7a45"]:hover,
+.ant-layout-content button[style*="color: rgb(255, 122, 69)"]:hover {
+  background-color: rgba(226, 111, 84, 0.1) !important;
+  color: #ffffff !important;
+  border-color: #e87f66 !important;
+}
