@@ -24,29 +24,29 @@ import HeaderActions from '@/components/HeaderActions';
 const getHeaderInfo = (pathname: string) => {
   switch (pathname) {
     case '/dashboard':
-      return { title: 'System Health Overview', sub: 'Real-time telemetry and ETL pipelines statistics' };
+      return { title: 'System Health Overview', sub: 'Real-time cloud operations, jobs, workers and incidents' };
     case '/pipelines':
-      return { title: 'ETL Pipelines Console', sub: 'Manage, trigger, and monitor Spark ETL jobs' };
+      return { title: 'Event Workflows', sub: 'Configure rule-based diagnostic event workflows' };
     case '/data-sources':
-      return { title: 'Data Sources Integration', sub: 'Configure and monitor external databases and SQS queues' };
+      return { title: 'Event Sources', sub: 'Configure event receivers, validate signatures, and dispatch queue events' };
     case '/storage':
-      return { title: 'S3 File Storage Explorer', sub: 'Browse files, logs, and datasets in AWS S3 buckets' };
+      return { title: 'Cloud Storage Events', sub: 'Explore cloud storage event payloads and backup archives' };
     case '/logs':
-      return { title: 'Real-time Cluster Logs', sub: 'Live streaming logs from master and worker nodes' };
+      return { title: 'Distributed Logs', sub: 'Aggregated logs from API gateways, message queues, and worker processes' };
     case '/monitoring':
-      return { title: 'AWS CloudWatch Metrics', sub: 'CloudWatch alarms, CPU, RAM, and Disk telemetry' };
+      return { title: 'Telemetry & Metrics', sub: 'Real-time active worker processes, Redis queue capacity, and load parameters' };
     case '/alerts':
-      return { title: 'System Alert Center', sub: 'Active alarms, thresholds, and incidents history' };
+      return { title: 'Incidents Console', sub: 'Active incidents, severity levels, and RCA mitigations' };
     case '/scheduler':
-      return { title: 'Cron Scheduler', sub: 'Configure and schedule periodic cron ETL runs' };
+      return { title: 'Queues & Job Scheduler', sub: 'Heartbeat checks, log rotations, and diagnostic job routines' };
     case '/reports':
-      return { title: 'Reports & Analytics', sub: 'Generate statistics and performance analysis' };
+      return { title: 'Alerts Analytics', sub: 'SLA trends, MTTR analytics, and resolution reports' };
     case '/users':
-      return { title: 'User Management', sub: 'Configure access control, roles, and user permissions' };
+      return { title: 'Workers & Access Control', sub: 'Manage operators, workers IAM profiles, and RBAC policies' };
     case '/settings':
-      return { title: 'System Settings', sub: 'Configure cluster connection and AWS variables' };
+      return { title: 'System Settings', sub: 'Configure global adapters, SMTP relays, and parameter stores' };
     default:
-      return { title: 'DataFlowHub', sub: 'Cloud DataOps Management Console' };
+      return { title: 'CloudOps', sub: 'Unified Cloud Incident & Events Console' };
   }
 };
 
@@ -218,7 +218,7 @@ export const layout: RunTimeLayoutConfig = ({ initialState, setInitialState }) =
           React.createElement(
             'span',
             { style: { color: '#fff', fontSize: '18px', fontWeight: 600, fontFamily: "'Outfit', sans-serif" } },
-            'DataFlowHub'
+            'CloudOps'
           )
         )
       );
