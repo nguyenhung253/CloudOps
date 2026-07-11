@@ -42,8 +42,8 @@ const Login: React.FC = () => {
           <div className={styles.logoWrapper}>
             <CloudServerOutlined className={styles.logoIcon} />
           </div>
-          <h2 className={styles.title}>DataFlowHub</h2>
-          <p className={styles.subtitle}>AWS Cloud DataOps Platform Dashboard</p>
+          <h2 className={styles.title}>CloudOps</h2>
+          <p className={styles.subtitle}>AWS Cloud Operations & Incident Management</p>
         </div>
 
         <Form
@@ -82,7 +82,7 @@ const Login: React.FC = () => {
                   Admin (Quyền tối cao)
                 </Radio.Button>
                 <Radio.Button value="operator" className={styles.roleBtn}>
-                  Operator (Chạy & Điều khiển Pipeline)
+                  Operator (Chạy & Điều khiển Event/Worker)
                 </Radio.Button>
                 <Radio.Button value="viewer" className={styles.roleBtn}>
                   Viewer (Chỉ xem Dashboard & Logs)
@@ -106,7 +106,7 @@ const Login: React.FC = () => {
       </Card>
       
       <div className={styles.loginFooter}>
-        <span style={{ color: '#555' }}>DataFlowHub ©2026 Powered by AWS Cloud Infrastructure</span>
+        <span style={{ color: '#555' }}>CloudOps ©2026 Powered by AWS Cloud Infrastructure</span>
       </div>
     </div>
   );
