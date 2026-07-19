@@ -4,7 +4,10 @@
   "private": true,
   "scripts": {
     "build": "pnpm --recursive run build",
-    "dev": "pnpm --recursive --parallel run dev",
+    "dev": "cross-env DID_YOU_KNOW=none pnpm --filter @cloudops/web --filter @cloudops/api --filter @cloudops/worker --parallel run dev",
+    "dev:web": "cross-env DID_YOU_KNOW=none pnpm --filter @cloudops/web dev",
+    "dev:api": "pnpm --filter @cloudops/api dev",
+    "dev:worker": "pnpm --filter @cloudops/worker dev",
     "start": "pnpm --filter @cloudops/api start",
     "lint": "pnpm --recursive run lint",
     "test": "pnpm --recursive run test",
@@ -12,7 +15,22 @@
     "db:push": "prisma db push --schema=prisma/schema.prisma"
   },
   "devDependencies": {
+    "@prisma/config": "^7.8.0",
+    "@types/cookie-parser": "^1.4.10",
+    "@types/express": "^5.0.0",
     "@types/node": "^24.0.0",
+    "@types/pg": "^8.20.0",
+    "cross-env": "^10.1.0",
     "typescript": "^5.7.3"
+  },
+  "dependencies": {
+    "@nestjs/common": "^11.0.1",
+    "@nestjs/core": "^11.0.1",
+    "@prisma/adapter-pg": "^7.8.0",
+    "@prisma/client": "^7.8.0",
+    "cookie-parser": "^1.4.7",
+    "express": "^5.2.1",
+    "pg": "^8.22.0",
+    "rxjs": "^7.8.1"
   }
 }
