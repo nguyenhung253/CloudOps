@@ -80,46 +80,47 @@ const Dashboard: React.FC = () => {
   const [cpuHistory, setCpuHistory] = useState([45, 48, 42, 50, 52, 47, 49, 44, 48]);
   const [ramHistory, setRamHistory] = useState([64, 65, 65, 66, 65, 64, 66, 65, 65]);
 
-  // ETL statistics state
+  // CloudOps Dashboard statistics state
   const [stats, setStats] = useState({
-    running: 3,
-    queued: 5,
-    completed: 134,
-    failed: 2,
-    filesProcessed: 8924,
-    dailyRequests: 452812,
+    totalJobs: 139,
+    runningJobs: 2,
+    failedJobs: 2,
+    activeWorkers: 4,
+    queueLength: 5,
+    openIncidents: 1,
+    alertCount: 3,
   });
 
-  // Datadog Monitors State
+  // Datadog-style Monitors State
   const [monitors, setMonitors] = useState([
-    { key: 'ec2', name: 'EC2 Worker Nodes', type: 'system', status: 'healthy', value: '12 active', uptime: '99.98%' },
-    { key: 'docker', name: 'Docker Executors', type: 'container', status: 'healthy', value: '5/5 running', uptime: '100.0%' },
-    { key: 'redis', name: 'Redis Cache Server', type: 'cache', status: 'healthy', value: '0.8ms latency', uptime: '99.99%' },
-    { key: 'rds', name: 'RDS Aurora PostgreSQL', type: 'database', status: 'healthy', value: 'Synced', uptime: '99.95%' },
-    { key: 's3', name: 'S3 Object Storage', type: 'storage', status: 'healthy', value: '128 GB', uptime: '100.0%' }
+    { key: 'cloudwatch', name: 'AWS CloudWatch Adapter', type: 'adapter', status: 'healthy', value: 'Receiving Events', uptime: '99.99%' },
+    { key: 'redis', name: 'BullMQ Redis Server', type: 'queue', status: 'healthy', value: '1.2ms latency', uptime: '99.98%' },
+    { key: 'workers', name: 'Background Workers', type: 'workers', status: 'healthy', value: '4 online / 0 busy', uptime: '100.0%' },
+    { key: 'ruleengine', name: 'CloudOps Rule Engine', type: 'engine', status: 'healthy', value: 'Active (12 rules)', uptime: '99.95%' },
+    { key: 's3', name: 'S3 Event Backup Storage', type: 'storage', status: 'healthy', value: '128 GB allocated', uptime: '100.0%' }
   ]);
 
   // Active Alerts state
   const [alerts, setAlerts] = useState([
-    { id: '1', service: 'ETL Spark Master', msg: 'Container Memory allocation exceeds threshold limit (>85%)', level: 'warning', time: 'Just now' },
-    { id: '2', service: 'Amazon RDS DB', msg: 'Spark job connection write failure: replication lag peak at 12ms', level: 'critical', time: '10m ago' },
-    { id: '3', service: 'S3 Sync Daemon', msg: 'Incremental raw dataset synchronization completed successfully', level: 'info', time: '15m ago' }
+    { id: '1', service: 'AWS CloudWatch Adapter', msg: 'CPU Utilization Alarm triggered: instance ec2-worker-02 (>90%)', level: 'critical', time: 'Just now' },
+    { id: '2', service: 'BullMQ Redis Queue', msg: 'Redis memory usage peaks above threshold limit (>80MB)', level: 'warning', time: '10m ago' },
+    { id: '3', service: 'Incident Manager', msg: 'Incident #INC-882 assigned to on-call engineer', level: 'info', time: '15m ago' }
   ]);
 
   // Terminal Console Logs State
   const [terminalLogs, setTerminalLogs] = useState<TerminalLine[]>([
-    { text: '[root@etl-worker] workspace_env_init --verbose', type: 'cmd' },
-    { text: 'Loading configuration profiles from AWS Secrets Manager...', type: 'info' },
-    { text: 'Connection to Spark cluster master node at spark://10.0.1.42:7077 established.', type: 'info' },
-    { text: 'DataFlowHub worker pool listening for job execution pipelines...', type: 'success' },
+    { text: '[root@cloudops-worker] cloudops_agent_init --verbose', type: 'cmd' },
+    { text: 'Initializing AWS Provider Adapter connections...', type: 'info' },
+    { text: 'Subscribed to SQS Queue: cloudops-events-queue-prod', type: 'info' },
+    { text: 'Redis BullMQ connection initialized. Background workers waiting for events...', type: 'success' },
   ]);
 
   // Activities logs state
   const [activities, setActivities] = useState<ActivityItem[]>([
-    { id: '1', time: '21:08', text: 'Job Import User completed', status: 'success' },
-    { id: '2', time: '21:06', text: 'Dataset uploaded', status: 'info' },
-    { id: '3', time: '21:02', text: 'Worker restarted', status: 'warning' },
-    { id: '4', time: '20:59', text: 'Backup Database success', status: 'success' }
+    { id: '1', time: '21:08', text: 'Incident #INC-992: [CPU High] resolved', status: 'success' },
+    { id: '2', time: '21:06', text: 'AWS S3 object created event validated', status: 'info' },
+    { id: '3', time: '21:02', text: 'BullMQ background worker #03 restarted', status: 'warning' },
+    { id: '4', time: '20:59', text: 'Incident alert notification dispatched via Slack', status: 'success' }
   ]);
 
   const [isExecutingJob, setIsExecutingJob] = useState(false);
@@ -147,11 +148,11 @@ const Dashboard: React.FC = () => {
           return next;
         });
 
-        // Randomly simulate a processed file increment
+        // Randomly simulate a processed event increment
         setStats(prev => ({
           ...prev,
-          filesProcessed: prev.filesProcessed + Math.floor(Math.random() * 2),
-          dailyRequests: prev.dailyRequests + Math.floor(Math.random() * 50) + 10,
+          totalJobs: prev.totalJobs + Math.floor(Math.random() * 2),
+          queueLength: Math.max(0, prev.queueLength + Math.floor(Math.random() * 3) - 1),
         }));
 
         setSecondsSinceUpdate(0);
@@ -162,18 +163,17 @@ const Dashboard: React.FC = () => {
         if (isExecutingJob) return; // Don't interrupt manual job logs
 
         const backgroundCommands = [
-          { cmd: 'systemctl status dataflow-agent.service', out: 'dataflow-agent.service (v2.4.1) is active (running)...', type: 'success' },
-          { cmd: 'df -h /data', out: 'Filesystem /dev/xvda1: 128G used, 114G avail (52% capacity)', type: 'info' },
-          { cmd: 'redis-cli ping', out: 'PONG (latency 0.82ms)', type: 'success' },
-          { cmd: 'aws sqs get-queue-attributes', out: 'SQS MessagesAvailable: 5 | MessagesDelayed: 0', type: 'info' },
-          { cmd: 'pgrep -f spark-executor', out: 'Active spark-executor PIDs: [19402, 19415, 19420]', type: 'info' }
+          { cmd: 'systemctl status cloudops-agent.service', out: 'cloudops-agent.service (v1.0.2) is active (running)...', type: 'success' },
+          { cmd: 'redis-cli ping', out: 'PONG (latency 1.15ms)', type: 'success' },
+          { cmd: 'aws sqs get-queue-attributes --attribute-names ApproximateNumberOfMessages', out: 'SQS MessagesAvailable: 5 | SQS MessagesNotVisible: 0', type: 'info' },
+          { cmd: 'pm2 status bullmq-workers', out: 'Workers Pool: [Worker_01: busy, Worker_02: idle, Worker_03: idle, Worker_04: idle]', type: 'info' }
         ];
 
         const selected = backgroundCommands[Math.floor(Math.random() * backgroundCommands.length)];
         
         setTerminalLogs(prev => [
           ...prev,
-          { text: `[root@etl-worker] ${selected.cmd}`, type: 'cmd' },
+          { text: `[root@cloudops-worker] ${selected.cmd}`, type: 'cmd' },
         ]);
 
         setTimeout(() => {
@@ -181,7 +181,7 @@ const Dashboard: React.FC = () => {
             ...prev,
             { text: selected.out, type: selected.type as any }
           ]);
-        }, 60000); // Trigger outputs slightly delayed or just append directly for simulation speed:
+        }, 800); // Append directly for realistic terminal streaming speed
       }, 5000);
     }
 
@@ -197,19 +197,19 @@ const Dashboard: React.FC = () => {
   }, [isAutoRefresh, isExecutingJob]);
 
   // Interactivity handlers for Quick Actions
-  const handleRunETL = () => {
+  const handleTriggerEvent = () => {
     if (isExecutingJob) return;
     setIsExecutingJob(true);
-    message.loading({ content: 'Initiating Spark Cluster ETL Job...', key: 'etl_action' });
+    message.loading({ content: 'Simulating AWS CloudWatch CPU_HIGH Event...', key: 'event_action' });
 
     // Stream logs to terminal
     const steps = [
-      { text: '[root@etl-worker] spark-submit --master spark://spark-master:7077 --deploy-mode client /opt/etl/jobs/import_users.py', type: 'cmd' },
-      { text: 'Starting Job: ETL_User_Import_Pipeline...', type: 'info' },
-      { text: 'Loading Dataset from S3 bucket: dataflow-hub-bucket...', type: 'cyan' },
-      { text: 'Transforming... [PySpark mapping, cleaning, and partitioning]', type: 'cyan' },
-      { text: 'Uploading target records to Amazon RDS Aurora postgres pool...', type: 'cyan' },
-      { text: 'Completed successfully. Spark session closed.', type: 'success' }
+      { text: '[root@cloudops-worker] curl -X POST -H "Content-Type: application/json" -d \'{"event": "CPU_HIGH", "threshold": 90}\' http://localhost:8000/api/v1/events/aws-cloudwatch', type: 'cmd' },
+      { text: 'CloudWatch Adapter: Received event payload. Validating event signature...', type: 'info' },
+      { text: 'Signature: OK. Schema Validation: PASSED. Generated Unified Cloud Event: E-AWS-CW-9128', type: 'success' },
+      { text: 'BullMQ: Enqueued Job #1412 into Redis waiting list. [Priority: HIGH]', type: 'cyan' },
+      { text: 'Rule Engine: Evaluated (CPU > 90%) -> Result: Incident Triggered (INC-992). Dispatched alert to Slack & Email.', type: 'warn' },
+      { text: 'Incident Manager: Opened incident ticket INC-992. Timeline recorded.', type: 'success' }
     ];
 
     steps.forEach((step, index) => {
@@ -219,40 +219,41 @@ const Dashboard: React.FC = () => {
           // Finalize state
           setStats(prev => ({
             ...prev,
-            running: Math.max(0, prev.running - 1),
-            completed: prev.completed + 1
+            totalJobs: prev.totalJobs + 1,
+            openIncidents: prev.openIncidents + 1,
+            alertCount: prev.alertCount + 1
           }));
 
           // Add to activity feed
           const now = new Date();
           const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
           setActivities(prev => [
-            { id: String(Date.now()), time: timeStr, text: 'Job Import User completed', status: 'success' },
+            { id: String(Date.now()), time: timeStr, text: 'Incident #INC-992: [CPU High] created', status: 'error' },
             ...prev
           ]);
 
-          notification.success({
-            message: 'Spark Task Completed',
-            description: 'ETL Pipeline Job #912 successfully processed and saved to Aurora RDS.',
+          notification.error({
+            message: 'Incident Alert Dispatched',
+            description: 'Incident #INC-992 successfully triggered via Rule Engine and assigned to on-call engineer.',
             placement: 'topRight'
           });
-          message.success({ content: 'Job triggered successfully!', key: 'etl_action' });
+          message.success({ content: 'Event simulated successfully!', key: 'event_action' });
           setIsExecutingJob(false);
         }
       }, index * 400);
     });
   };
 
-  const handleUploadDataset = () => {
+  const handleS3UploadEvent = () => {
     if (isExecutingJob) return;
     setIsExecutingJob(true);
-    message.loading({ content: 'Mock uploading dataset partitions to AWS S3...', key: 'upload_action' });
+    message.loading({ content: 'Simulating AWS S3 ObjectCreated Event...', key: 'upload_action' });
 
     const steps = [
-      { text: '[root@etl-worker] aws s3 cp /tmp/batch-2026-07.parquet s3://dataflow-hub-bucket/raw/', type: 'cmd' },
-      { text: 'Initializing S3 Multipart Upload stream...', type: 'info' },
-      { text: 'Uploading dataset partitions... [File size: 24.8 MB]', type: 'cyan' },
-      { text: 'S3 Upload completed. Checksum verification MD5: OK.', type: 'success' }
+      { text: '[root@cloudops-worker] aws sns publish --topic-arn arn:aws:sns:us-east-1:123456789012:s3-events --message \'{"Records": [{"s3": {"object": {"key": "logs/2026-07.json"}}}].\'', type: 'cmd' },
+      { text: 'S3 Event Adapter: Received S3:ObjectCreated:Put event metadata.', type: 'info' },
+      { text: 'Validation: Unified Event created: E-AWS-S3-9129 [File: logs/2026-07.json]', type: 'success' },
+      { text: 'BullMQ Worker #02 processed event. Rule Engine: No incidents triggered. Archived raw event.', type: 'success' }
     ];
 
     steps.forEach((step, index) => {
@@ -261,22 +262,22 @@ const Dashboard: React.FC = () => {
         if (index === steps.length - 1) {
           setStats(prev => ({
             ...prev,
-            filesProcessed: prev.filesProcessed + 1
+            totalJobs: prev.totalJobs + 1
           }));
 
           const now = new Date();
           const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
           setActivities(prev => [
-            { id: String(Date.now()), time: timeStr, text: 'Dataset uploaded', status: 'info' },
+            { id: String(Date.now()), time: timeStr, text: 'AWS S3 object created event validated', status: 'info' },
             ...prev
           ]);
 
           notification.info({
-            message: 'S3 Object Uploaded',
-            description: 'Partition batch-2026-07.parquet successfully written to s3://dataflow-hub-bucket/raw/',
+            message: 'S3 Event Processed',
+            description: 'S3 upload event logs/2026-07.json successfully validated and archived.',
             placement: 'topRight'
           });
-          message.success({ content: 'Upload completed!', key: 'upload_action' });
+          message.success({ content: 'S3 Event Ingested!', key: 'upload_action' });
           setIsExecutingJob(false);
         }
       }, index * 400);
@@ -286,34 +287,34 @@ const Dashboard: React.FC = () => {
   const handleRestartWorker = () => {
     if (isExecutingJob) return;
     setIsExecutingJob(true);
-    message.loading({ content: 'Restarting Spark Worker containers...', key: 'restart_action' });
+    message.loading({ content: 'Restarting BullMQ Worker processes...', key: 'restart_action' });
     
-    // Set docker status warning
-    setMonitors(prev => prev.map(m => m.key === 'docker' ? { ...m, status: 'warning', value: '4/5 active' } : m));
+    // Set status warning
+    setMonitors(prev => prev.map(m => m.key === 'workers' ? { ...m, status: 'warning', value: '3 online / 0 busy' } : m));
 
     const steps = [
-      { text: '[root@etl-worker] docker restart spark-worker-01 spark-worker-02', type: 'cmd' },
-      { text: 'Sending SIGTERM to active spark container processes...', type: 'info' },
-      { text: 'Stopping container executors... [Instance PIDs 19402, 19415]', type: 'cyan' },
-      { text: 'Docker worker nodes restarted successfully. Status: ONLINE.', type: 'success' }
+      { text: '[root@cloudops-worker] pm2 restart bullmq-workers', type: 'cmd' },
+      { text: 'Sending SIGINT to 4 active node process executors...', type: 'info' },
+      { text: 'Workers terminated gracefully. Spawning clean Node worker containers...', type: 'cyan' },
+      { text: 'BullMQ workers online. Status: 4 online / 0 busy. Listening for Redis events...', type: 'success' }
     ];
 
     steps.forEach((step, index) => {
       setTimeout(() => {
         setTerminalLogs(prev => [...prev, step as TerminalLine]);
         if (index === steps.length - 1) {
-          setMonitors(prev => prev.map(m => m.key === 'docker' ? { ...m, status: 'healthy', value: '5/5 running' } : m));
+          setMonitors(prev => prev.map(m => m.key === 'workers' ? { ...m, status: 'healthy', value: '4 online / 0 busy' } : m));
 
           const now = new Date();
           const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
           setActivities(prev => [
-            { id: String(Date.now()), time: timeStr, text: 'Worker restarted', status: 'warning' },
+            { id: String(Date.now()), time: timeStr, text: 'BullMQ background worker pool restarted', status: 'warning' },
             ...prev
           ]);
 
           notification.success({
-            message: 'Worker Restart Completed',
-            description: 'Spark container executor nodes restarted successfully on EC2 cluster instances.',
+            message: 'Worker Pool Restarted',
+            description: '4 Background Workers successfully restarted and linked to Redis queue.',
             placement: 'topRight'
           });
           message.success({ content: 'Workers restarted successfully!', key: 'restart_action' });
@@ -323,35 +324,40 @@ const Dashboard: React.FC = () => {
     });
   };
 
-  const handleSyncData = () => {
+  const handleFlushRedisQueue = () => {
     if (isExecutingJob) return;
     setIsExecutingJob(true);
-    message.loading({ content: 'Synchronizing RDS replica configurations...', key: 'sync_action' });
+    message.loading({ content: 'Flushing Redis Active Queue states...', key: 'sync_action' });
 
     const steps = [
-      { text: '[root@etl-worker] pg_dump -h rds-master -U postgres | psql -h rds-replica', type: 'cmd' },
-      { text: 'Checking master DB connection pool availability...', type: 'info' },
-      { text: 'Syncing RDS replicas... [Delta stream replication lag: 0.1ms]', type: 'cyan' },
-      { text: 'Backup Database success. Master/Replica synced successfully.', type: 'success' }
+      { text: '[root@cloudops-worker] redis-cli -h localhost -p 6379 -a "******" FLUSHDB', type: 'cmd' },
+      { text: 'Connecting to Redis BullMQ memory store...', type: 'info' },
+      { text: 'Deleting all active, delayed, failed and waiting queues...', type: 'cyan' },
+      { text: 'Redis store flushed: OK. Cleared active task indexes.', type: 'success' }
     ];
 
     steps.forEach((step, index) => {
       setTimeout(() => {
         setTerminalLogs(prev => [...prev, step as TerminalLine]);
         if (index === steps.length - 1) {
+          setStats(prev => ({
+            ...prev,
+            queueLength: 0
+          }));
+
           const now = new Date();
           const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
           setActivities(prev => [
-            { id: String(Date.now()), time: timeStr, text: 'Backup Database success', status: 'success' },
+            { id: String(Date.now()), time: timeStr, text: 'Redis BullMQ database flushed', status: 'success' },
             ...prev
           ]);
 
           notification.success({
-            message: 'RDS DB Repositories Synced',
-            description: 'Primary master and read replicas synchronized successfully. Replication lag minimized.',
+            message: 'Redis Store Flushed',
+            description: 'Redis active database flushed. Queue length reset to 0.',
             placement: 'topRight'
           });
-          message.success({ content: 'Sync completed!', key: 'sync_action' });
+          message.success({ content: 'Queue flushed successfully!', key: 'sync_action' });
           setIsExecutingJob(false);
         }
       }, index * 400);
@@ -372,57 +378,57 @@ const Dashboard: React.FC = () => {
   return (
     <PageContainer title={false}>
       
-      {/* 1. ETL Jobs Status Banner Cards */}
+      {/* 1. CloudOps Status Banner Cards */}
       <Row gutter={[16, 16]} style={{ marginBottom: '20px' }}>
-        <Col xs={12} sm={12} md={6}>
+        <Col xs={24} sm={12} md={6} lg={6} xl={6}>
           <Card bordered={false} className="stat-card" style={{ borderLeft: '4px solid #1890ff', backgroundColor: '#191919' }}>
             <Statistic
-              title={<span style={{ color: '#8c8c8c', fontSize: '13px' }}>Running Pipelines</span>}
-              value={stats.running}
-              valueStyle={{ color: '#1890ff', fontSize: '28px', fontWeight: 'bold' }}
-              prefix={<SyncOutlined spin style={{ marginRight: 8, fontSize: '20px' }} />}
+              title={<span style={{ color: '#8c8c8c', fontSize: '12px' }}>Event Workflows</span>}
+              value={stats.totalJobs}
+              valueStyle={{ color: '#1890ff', fontSize: '24px', fontWeight: 'bold' }}
+              prefix={<DatabaseOutlined style={{ marginRight: 8, fontSize: '18px' }} />}
             />
             <div style={{ marginTop: 4, color: '#8c8c8c', fontSize: '11px' }}>
-              Active Spark executor sessions
+              Processed cloud events
             </div>
           </Card>
         </Col>
-        <Col xs={12} sm={12} md={6}>
-          <Card bordered={false} className="stat-card" style={{ borderLeft: '4px solid #faad14', backgroundColor: '#191919' }}>
+        <Col xs={24} sm={12} md={6} lg={6} xl={6}>
+          <Card bordered={false} className="stat-card" style={{ borderLeft: '4px solid #13c2c2', backgroundColor: '#191919' }}>
             <Statistic
-              title={<span style={{ color: '#8c8c8c', fontSize: '13px' }}>Queued Jobs</span>}
-              value={stats.queued}
-              valueStyle={{ color: '#faad14', fontSize: '28px', fontWeight: 'bold' }}
-              prefix={<ClockCircleOutlined style={{ marginRight: 8, fontSize: '20px' }} />}
+              title={<span style={{ color: '#8c8c8c', fontSize: '12px' }}>Running Jobs</span>}
+              value={stats.runningJobs}
+              valueStyle={{ color: '#13c2c2', fontSize: '24px', fontWeight: 'bold' }}
+              prefix={<SyncOutlined spin style={{ marginRight: 8, fontSize: '18px' }} />}
             />
             <div style={{ marginTop: 4, color: '#8c8c8c', fontSize: '11px' }}>
-              Waiting in AWS SQS queue
+              Active BullMQ executors
             </div>
           </Card>
         </Col>
-        <Col xs={12} sm={12} md={6}>
-          <Card bordered={false} className="stat-card" style={{ borderLeft: '4px solid #52c41a', backgroundColor: '#191919' }}>
+        <Col xs={24} sm={12} md={6} lg={6} xl={6}>
+          <Card bordered={false} className="stat-card" style={{ borderLeft: '4px solid #cf1322', backgroundColor: '#191919' }}>
             <Statistic
-              title={<span style={{ color: '#8c8c8c', fontSize: '13px' }}>Completed Jobs</span>}
-              value={stats.completed}
-              valueStyle={{ color: '#52c41a', fontSize: '28px', fontWeight: 'bold' }}
-              prefix={<CheckCircleOutlined style={{ marginRight: 8, fontSize: '20px' }} />}
+              title={<span style={{ color: '#8c8c8c', fontSize: '12px' }}>Failed Jobs</span>}
+              value={stats.failedJobs}
+              valueStyle={{ color: '#cf1322', fontSize: '24px', fontWeight: 'bold' }}
+              prefix={<BugOutlined style={{ marginRight: 8, fontSize: '18px' }} />}
             />
             <div style={{ marginTop: 4, color: '#8c8c8c', fontSize: '11px' }}>
-              Processed successfully today
+              Rejected or failed events
             </div>
           </Card>
         </Col>
-        <Col xs={12} sm={12} md={6}>
-          <Card bordered={false} className="stat-card" style={{ borderLeft: '4px solid #ff4d4f', backgroundColor: '#191919' }}>
+        <Col xs={24} sm={12} md={6} lg={6} xl={6}>
+          <Card bordered={false} className="stat-card" style={{ borderLeft: '4px solid #ff7a45', backgroundColor: '#191919' }}>
             <Statistic
-              title={<span style={{ color: '#8c8c8c', fontSize: '13px' }}>Failed Pipelines</span>}
-              value={stats.failed}
-              valueStyle={{ color: '#ff4d4f', fontSize: '28px', fontWeight: 'bold' }}
-              prefix={<BugOutlined style={{ marginRight: 8, fontSize: '20px' }} />}
+              title={<span style={{ color: '#8c8c8c', fontSize: '12px' }}>Open Incidents</span>}
+              value={stats.openIncidents}
+              valueStyle={{ color: '#ff7a45', fontSize: '24px', fontWeight: 'bold' }}
+              prefix={<WarningFilled style={{ marginRight: 8, fontSize: '18px', color: '#ff7a45' }} />}
             />
             <div style={{ marginTop: 4, color: '#8c8c8c', fontSize: '11px' }}>
-              Requires developer check
+              Requires resolution
             </div>
           </Card>
         </Col>
@@ -512,21 +518,21 @@ const Dashboard: React.FC = () => {
                 type="primary" 
                 block 
                 icon={<PlayCircleOutlined />} 
-                onClick={handleRunETL}
+                onClick={handleTriggerEvent}
                 disabled={isExecutingJob}
                 style={{ height: '40px', borderRadius: '6px', fontWeight: 600 }}
               >
-                Run ETL Pipeline Job
+                Run Diagnostic Job
               </Button>
               
               <Button 
                 block 
                 icon={<CloudUploadOutlined />} 
-                onClick={handleUploadDataset}
+                onClick={handleS3UploadEvent}
                 disabled={isExecutingJob}
                 style={{ height: '40px', borderRadius: '6px', backgroundColor: 'rgba(255, 87, 34, 0.05)', color: '#ff7a45', border: '1px solid #ff7a45' }}
               >
-                Upload Raw Dataset
+                Upload Log File
               </Button>
 
               <Row gutter={12}>
@@ -545,11 +551,11 @@ const Dashboard: React.FC = () => {
                   <Button 
                     block 
                     icon={<SyncOutlined />} 
-                    onClick={handleSyncData}
+                    onClick={handleFlushRedisQueue}
                     disabled={isExecutingJob}
                     style={{ height: '36px', fontSize: '12px' }}
                   >
-                    Sync Databases
+                    Sync Event Sources
                   </Button>
                 </Col>
               </Row>
@@ -561,7 +567,7 @@ const Dashboard: React.FC = () => {
                 onClick={() => history.push('/logs')}
                 style={{ textAlign: 'center', color: '#ff7a45', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
               >
-                Open Terminal Console Log <RightOutlined style={{ fontSize: '10px', marginLeft: 4 }} />
+                Open Console Logs <RightOutlined style={{ fontSize: '10px', marginLeft: 4 }} />
               </Button>
             </Space>
           </Card>
@@ -576,7 +582,7 @@ const Dashboard: React.FC = () => {
             title={
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                 <CodeOutlined style={{ color: '#e26f54' }} />
-                <span style={{ color: '#fff', fontSize: '16px', fontWeight: 600 }}>Operations Console Logs (etl-worker-01)</span>
+                <span style={{ color: '#fff', fontSize: '16px', fontWeight: 600 }}>CloudOps Log Console (cloudops-worker-01)</span>
               </div>
             } 
             bordered={false}
@@ -596,7 +602,7 @@ const Dashboard: React.FC = () => {
                 );
               })}
               <div style={{ display: 'flex', alignItems: 'center', color: '#52c41a', fontSize: '12px', fontFamily: "'Courier New', monospace" }}>
-                <span>[root@etl-worker] # </span>
+                <span>[root@cloudops-worker] # </span>
                 <span className="terminal-cursor" />
               </div>
               <div ref={terminalEndRef} />
@@ -609,7 +615,7 @@ const Dashboard: React.FC = () => {
           <Card 
             title={
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span style={{ color: '#fff', fontSize: '16px', fontWeight: 600 }}>Datadog Service Monitors</span>
+                <span style={{ color: '#fff', fontSize: '16px', fontWeight: 600 }}>CloudOps Service Monitors</span>
                 <Tag color="success" style={{ border: 'none', fontSize: '10px' }}>ALL OK</Tag>
               </div>
             } 
@@ -733,7 +739,7 @@ const Dashboard: React.FC = () => {
 
         {/* System Activity Feed */}
         <Col xs={24} lg={8}>
-          <Card title={<span style={{ color: '#fff', fontSize: '16px', fontWeight: 600 }}>Cluster Activity Feed</span>} bordered={false}>
+          <Card title={<span style={{ color: '#fff', fontSize: '16px', fontWeight: 600 }}>Operations Activity Feed</span>} bordered={false}>
             <List
               dataSource={activities}
               renderItem={(item) => {
