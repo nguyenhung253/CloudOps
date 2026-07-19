@@ -1,5 +1,8 @@
-import { Module } from '@nestjs/common';
+import { join } from 'path';
+import { Module, NestModule, MiddlewareConsumer } from '@nestjs/common';
+import { RequestIdMiddleware } from '@app/common';
 import { ConfigModule } from '@nestjs/config';
+import { LoggerModule } from 'nestjs-pino';
 import appConfig from './config/app.config';
 import authConfig from './config/auth.config';
 import databaseConfig from './config/database.config';
@@ -22,8 +25,52 @@ import { DashboardModule } from './modules/dashboard/dashboard.module';
 
 @Module({
   imports: [
+    LoggerModule.forRoot({
+      pinoHttp: {
+        level: process.env.LOG_LEVEL ?? 'info',
+        autoLogging: false,
+        transport:
+          process.env.NODE_ENV !== 'production'
+            ? {
+                target: 'pino-pretty',
+                options: {
+                  singleLine: true,
+                  translateTime: 'HH:MM:ss',
+                  ignore: 'pid,hostname',
+                },
+              }
+            : undefined,
+        hooks: {
+          logMethod(inputArgs, method) {
+            const [obj] = inputArgs;
+            if (obj && typeof obj === 'object' && 'context' in obj) {
+              const context = obj.context;
+              if (
+                context === 'InstanceLoader' ||
+                context === 'RoutesResolver' ||
+                context === 'RouterExplorer' ||
+                context === 'NestFactory' ||
+                context === 'NestApplication' ||
+                context === 'LegacyRouteConverter'
+              ) {
+                return;
+              }
+            }
+            method.apply(this, inputArgs);
+          },
+        },
+      },
+      forRoutes: ['{*path}'],
+    }),
     ConfigModule.forRoot({
       isGlobal: true,
+      // Package cwd first, then monorepo root (pnpm filter runs with apps/api as cwd)
+      envFilePath: [
+        join(process.cwd(), '.env'),
+        join(process.cwd(), '.env.local'),
+        join(process.cwd(), '../../.env'),
+        join(process.cwd(), '../../.env.local'),
+      ],
       load: [appConfig, authConfig, databaseConfig, queueConfig],
       validationSchema,
     }),
@@ -43,4 +90,8 @@ import { DashboardModule } from './modules/dashboard/dashboard.module';
     DashboardModule,
   ],
 })
-export class AppModule {}
+export class AppModule implements NestModule {
+  configure(consumer: MiddlewareConsumer) {
+    consumer.apply(RequestIdMiddleware).forRoutes('{*path}');
+  }
+}
