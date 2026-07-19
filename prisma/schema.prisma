@@ -1,17 +1,72 @@
 datasource db {
   provider = "postgresql"
-  url      = env("DATABASE_URL")
 }
 
 generator client {
   provider = "prisma-client-js"
 }
 
+enum UserRole {
+  ADMIN
+  OPERATOR
+  VIEWER
+
+  @@map("user_role")
+}
+
+enum UserStatus {
+  ACTIVE
+  LOCKED
+  DISABLED
+
+  @@map("user_status")
+}
+
+enum SessionStatus {
+  ACTIVE
+  ROTATED
+  REVOKED
+  EXPIRED
+
+  @@map("session_status")
+}
+
 model User {
-  id        String   @id @default(uuid())
-  email     String   @unique
-  name      String?
-  password  String
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id           String     @id @default(uuid()) @db.Uuid
+  email        String     @unique @db.VarChar(255)
+  passwordHash String     @map("password_hash") @db.Text
+  fullName     String     @map("full_name") @db.VarChar(150)
+  role         UserRole
+  status       UserStatus
+  lastLoginAt  DateTime?  @map("last_login_at") @db.Timestamptz
+  createdAt    DateTime   @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt    DateTime   @updatedAt @map("updated_at") @db.Timestamptz
+  deletedAt    DateTime?  @map("deleted_at") @db.Timestamptz
+  sessions     Session[]
+
+  @@index([status, role])
+  @@map("users")
+}
+
+model Session {
+  id           String        @id @default(uuid()) @db.Uuid
+  userId       String        @map("user_id") @db.Uuid
+  tokenFamily  String        @map("token_family") @db.Uuid
+  tokenHash    String        @unique @map("token_hash") @db.Text
+  status       SessionStatus @default(ACTIVE)
+  userAgent    String?       @map("user_agent") @db.Text
+  ipAddress    String?       @map("ip_address") @db.Inet
+  lastUsedAt   DateTime?     @map("last_used_at") @db.Timestamptz
+  expiresAt    DateTime      @map("expires_at") @db.Timestamptz
+  revokedAt    DateTime?     @map("revoked_at") @db.Timestamptz
+  revokeReason String?       @map("revoke_reason") @db.Text
+  createdAt    DateTime      @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt    DateTime      @updatedAt @map("updated_at") @db.Timestamptz
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, status])
+  @@index([tokenFamily])
+  @@index([expiresAt])
+  @@map("sessions")
 }
