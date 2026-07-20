@@ -1,10 +1,14 @@
-import { Injectable, UnauthorizedException, ForbiddenException, ConflictException } from '@nestjs/common';
+import {
+  Injectable,
+  UnauthorizedException,
+  ForbiddenException,
+} from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { PrismaService } from '@app/database';
 import { UsersService } from '../users/users.service';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
-import { UserRole, UserStatus, User, SessionStatus } from '@prisma/client';
+import { UserRole, UserStatus, User } from '@prisma/client';
 import * as argon2 from 'argon2';
 import * as crypto from 'crypto';
 
@@ -31,6 +35,23 @@ export class AuthService {
 
   private hashToken(token: string): string {
     return crypto.createHash('sha256').update(token).digest('hex');
+  }
+
+  // Session active chỉ khi refresh token chưa revoke và expiresAt chưa hết hạn
+  private isSessionActive(session: { revokedAt: Date | null; expiresAt: Date }): boolean {
+    return session.revokedAt === null && session.expiresAt >= new Date();
+  }
+
+  private async revokeTokenFamily(tokenFamily: string): Promise<void> {
+    await this.prisma.session.updateMany({
+      where: {
+        tokenFamily,
+        revokedAt: null,
+      },
+      data: {
+        revokedAt: new Date(),
+      },
+    });
   }
 
   async register(dto: RegisterDto): Promise<User> {
@@ -62,7 +83,6 @@ export class AuthService {
       throw new ForbiddenException('Your account is disabled');
     }
 
-    // Update last login time
     await this.prisma.user.update({
       where: { id: user.id },
       data: { lastLoginAt: new Date() },
@@ -88,7 +108,6 @@ export class AuthService {
         userAgent,
         ipAddress,
         expiresAt,
-        status: SessionStatus.ACTIVE,
       },
     });
 
@@ -104,13 +123,7 @@ export class AuthService {
     return {
       accessToken,
       refreshToken,
-      user: {
-        id: user.id,
-        email: user.email,
-        fullName: user.fullName,
-        role: user.role,
-        status: user.status,
-      },
+      user: this.usersService.toPublicUser(user),
     };
   }
 
@@ -118,7 +131,7 @@ export class AuthService {
     let payload: RefreshTokenPayload;
     try {
       payload = this.jwtService.verify<RefreshTokenPayload>(refreshToken);
-    } catch (err) {
+    } catch {
       throw new UnauthorizedException('Invalid or expired refresh token');
     }
 
@@ -128,26 +141,21 @@ export class AuthService {
       include: { user: true },
     });
 
-    // If session doesn't exist, or is revoked, or token hash doesn't match
     if (!session || session.tokenHash !== tokenHash) {
+      // Nếu refresh token bị thay đổi thì revoke toàn bộ family
+      if (payload.tf) {
+        await this.revokeTokenFamily(payload.tf);
+      }
       throw new UnauthorizedException('Invalid or expired refresh token');
     }
 
-    // Reuse detection: if session is already ROTATED, revoke the entire token family
-    if (session.status === SessionStatus.ROTATED) {
-      await this.prisma.session.updateMany({
-        where: { tokenFamily: session.tokenFamily },
-        data: {
-          status: SessionStatus.REVOKED,
-          revokedAt: new Date(),
-          revokeReason: 'TOKEN_REUSE_DETECTED',
-        },
-      });
+    // Nếu refresh token đã bị revoke thì revoke toàn bộ family
+    if (session.revokedAt !== null) {
+      await this.revokeTokenFamily(session.tokenFamily);
       throw new UnauthorizedException('Session revoked due to token reuse detection');
     }
 
-    // If session is revoked or expired
-    if (session.status === SessionStatus.REVOKED || session.expiresAt < new Date()) {
+    if (session.expiresAt < new Date()) {
       throw new UnauthorizedException('Invalid or expired refresh token');
     }
 
@@ -166,19 +174,15 @@ export class AuthService {
 
     const newTokenHash = this.hashToken(newRefreshToken);
 
-    // Rotate token inside a transaction
+    // Rotate : đánh dấu session cũ đã revoke và tạo session mới
     await this.prisma.$transaction(async (tx) => {
-      // Mark old session as ROTATED
       await tx.session.update({
         where: { id: session.id },
         data: {
-          status: SessionStatus.ROTATED,
           revokedAt: new Date(),
-          revokeReason: 'TOKEN_ROTATED',
         },
       });
 
-      // Create new session
       await tx.session.create({
         data: {
           id: newSessionId,
@@ -188,7 +192,6 @@ export class AuthService {
           userAgent,
           ipAddress,
           expiresAt,
-          status: SessionStatus.ACTIVE,
         },
       });
     });
@@ -212,17 +215,33 @@ export class AuthService {
     let payload: RefreshTokenPayload;
     try {
       payload = this.jwtService.verify<RefreshTokenPayload>(refreshToken);
-    } catch (err) {
-      throw new UnauthorizedException('Invalid refresh token');
+    } catch {
+      // Nếu refresh token đã bị revoke thì logout thành công
+      return;
     }
 
-    await this.prisma.session.update({
-      where: { id: payload.sid },
+    await this.prisma.session.updateMany({
+      where: {
+        id: payload.sid,
+        revokedAt: null,
+      },
       data: {
-        status: SessionStatus.REVOKED,
         revokedAt: new Date(),
-        revokeReason: 'USER_LOGOUT',
       },
     });
+  }
+
+  async logoutAll(userId: string): Promise<{ revokedSessions: number }> {
+    const result = await this.prisma.session.updateMany({
+      where: {
+        userId,
+        revokedAt: null,
+      },
+      data: {
+        revokedAt: new Date(),
+      },
+    });
+
+    return { revokedSessions: result.count };
   }
 }
