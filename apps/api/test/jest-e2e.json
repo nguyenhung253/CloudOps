@@ -6,5 +6,12 @@
   "setupFiles": ["<rootDir>/setup.ts"],
   "transform": {
     "^.+\\.(t|j)s$": "ts-jest"
+  },
+  "moduleNameMapper": {
+    "^@app/database(|/.*)$": "<rootDir>/../../../libs/database/src/$1",
+    "^@app/queue(|/.*)$": "<rootDir>/../../../libs/queue/src/$1",
+    "^@app/cloud-provider(|/.*)$": "<rootDir>/../../../libs/cloud-provider/src/$1",
+    "^@app/observability(|/.*)$": "<rootDir>/../../../libs/observability/src/$1",
+    "^@app/common(|/.*)$": "<rootDir>/../../../libs/common/src/$1"
   }
 }
