@@ -76,6 +76,8 @@ const Dashboard: React.FC = () => {
   
   const [cpu, setCpu] = useState(48);
   const [ram, setRam] = useState(65);
+  const [throughput, setThroughput] = useState(324);
+  const [throughputTrend, setThroughputTrend] = useState('+12%');
   
   const [cpuHistory, setCpuHistory] = useState([45, 48, 42, 50, 52, 47, 49, 44, 48]);
   const [ramHistory, setRamHistory] = useState([64, 65, 65, 66, 65, 64, 66, 65, 65]);
@@ -101,11 +103,7 @@ const Dashboard: React.FC = () => {
   ]);
 
   // Active Alerts state
-  const [alerts, setAlerts] = useState([
-    { id: '1', service: 'AWS CloudWatch Adapter', msg: 'CPU Utilization Alarm triggered: instance ec2-worker-02 (>90%)', level: 'critical', time: 'Just now' },
-    { id: '2', service: 'BullMQ Redis Queue', msg: 'Redis memory usage peaks above threshold limit (>80MB)', level: 'warning', time: '10m ago' },
-    { id: '3', service: 'Incident Manager', msg: 'Incident #INC-882 assigned to on-call engineer', level: 'info', time: '15m ago' }
-  ]);
+  const [alerts, setAlerts] = useState<any[]>([]);
 
   // Terminal Console Logs State
   const [terminalLogs, setTerminalLogs] = useState<TerminalLine[]>([
@@ -154,6 +152,13 @@ const Dashboard: React.FC = () => {
           totalJobs: prev.totalJobs + Math.floor(Math.random() * 2),
           queueLength: Math.max(0, prev.queueLength + Math.floor(Math.random() * 3) - 1),
         }));
+
+        setThroughput(prev => {
+          const change = Math.floor(Math.random() * 21) - 10;
+          const next = Math.max(200, Math.min(500, prev + change));
+          setThroughputTrend(change >= 0 ? `↑ +${Math.floor(Math.random() * 5) + 1}%` : `↓ -${Math.floor(Math.random() * 5) + 1}%`);
+          return next;
+        });
 
         setSecondsSinceUpdate(0);
       }, 3000);
@@ -375,60 +380,108 @@ const Dashboard: React.FC = () => {
     return <InfoCircleFilled style={{ color: '#1890ff', fontSize: '16px' }} />;
   };
 
+  // Determine system health status dynamically
+  const hasCriticalAlert = alerts.some(a => a.level === 'critical');
+  const hasWarningAlert = alerts.some(a => a.level === 'warning');
+  const hasWarningMonitor = monitors.some(m => m.status === 'warning');
+  
+  let systemHealthStatus: 'healthy' | 'degraded' | 'critical' = 'healthy';
+  if (hasCriticalAlert) {
+    systemHealthStatus = 'critical';
+  } else if (hasWarningAlert || hasWarningMonitor) {
+    systemHealthStatus = 'degraded';
+  }
+  
+  const healthConfig = {
+    healthy: { label: 'Healthy', color: '#52c41a', icon: '🟢' },
+    degraded: { label: 'Degraded', color: '#faad14', icon: '🟡' },
+    critical: { label: 'Critical', color: '#ff4d4f', icon: '🔴' }
+  }[systemHealthStatus];
+
+  // Determine queue status color dynamically
+  let queueColor = '#52c41a'; // green
+  if (stats.queueLength >= 15) {
+    queueColor = '#ff4d4f'; // red
+  } else if (stats.queueLength >= 5) {
+    queueColor = '#faad14'; // yellow
+  }
+
+  // Count alerts dynamically
+  const criticalAlerts = alerts.filter(a => a.level === 'critical').length;
+  const warningAlerts = alerts.filter(a => a.level === 'warning').length;
+  let alertCardColor = '#52c41a'; // green
+  if (criticalAlerts > 0) {
+    alertCardColor = '#ff4d4f'; // red
+  } else if (warningAlerts > 0) {
+    alertCardColor = '#faad14'; // yellow
+  }
+
   return (
     <PageContainer title={false}>
       
       {/* 1. CloudOps Status Banner Cards */}
       <Row gutter={[16, 16]} style={{ marginBottom: '20px' }}>
         <Col xs={24} sm={12} md={6} lg={6} xl={6}>
-          <Card bordered={false} className="stat-card" style={{ borderLeft: '4px solid #1890ff', backgroundColor: '#191919' }}>
+          <Card bordered={false} className="stat-card" style={{ borderLeft: `4px solid ${healthConfig.color}`, backgroundColor: '#191919' }}>
             <Statistic
-              title={<span style={{ color: '#8c8c8c', fontSize: '12px' }}>Event Workflows</span>}
-              value={stats.totalJobs}
-              valueStyle={{ color: '#1890ff', fontSize: '24px', fontWeight: 'bold' }}
-              prefix={<DatabaseOutlined style={{ marginRight: 8, fontSize: '18px' }} />}
+              title={
+                <span style={{ color: '#8c8c8c', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <span style={{ display: 'inline-block', width: '8px', height: '8px', borderRadius: '50%', backgroundColor: healthConfig.color }} /> System Health
+                </span>
+              }
+              value={healthConfig.label}
+              valueStyle={{ color: healthConfig.color, fontSize: '18px', fontWeight: 'bold' }}
             />
             <div style={{ marginTop: 4, color: '#8c8c8c', fontSize: '11px' }}>
-              Processed cloud events
+              99.98% Uptime
             </div>
           </Card>
         </Col>
         <Col xs={24} sm={12} md={6} lg={6} xl={6}>
-          <Card bordered={false} className="stat-card" style={{ borderLeft: '4px solid #13c2c2', backgroundColor: '#191919' }}>
+          <Card bordered={false} className="stat-card" style={{ borderLeft: '4px solid #faad14', backgroundColor: '#191919' }}>
             <Statistic
-              title={<span style={{ color: '#8c8c8c', fontSize: '12px' }}>Running Jobs</span>}
-              value={stats.runningJobs}
-              valueStyle={{ color: '#13c2c2', fontSize: '24px', fontWeight: 'bold' }}
-              prefix={<SyncOutlined spin style={{ marginRight: 8, fontSize: '18px' }} />}
+              title={
+                <span style={{ color: '#8c8c8c', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <ThunderboltOutlined style={{ color: '#faad14', fontSize: '14px' }} /> Event Throughput
+                </span>
+              }
+              value={`${throughput} Events/min`}
+              valueStyle={{ color: '#faad14', fontSize: '18px', fontWeight: 'bold' }}
             />
-            <div style={{ marginTop: 4, color: '#8c8c8c', fontSize: '11px' }}>
-              Active BullMQ executors
+            <div style={{ marginTop: 4, color: '#52c41a', fontSize: '11px', fontWeight: 600 }}>
+              {throughputTrend}
             </div>
           </Card>
         </Col>
         <Col xs={24} sm={12} md={6} lg={6} xl={6}>
-          <Card bordered={false} className="stat-card" style={{ borderLeft: '4px solid #cf1322', backgroundColor: '#191919' }}>
+          <Card bordered={false} className="stat-card" style={{ borderLeft: `4px solid ${queueColor}`, backgroundColor: '#191919' }}>
             <Statistic
-              title={<span style={{ color: '#8c8c8c', fontSize: '12px' }}>Failed Jobs</span>}
-              value={stats.failedJobs}
-              valueStyle={{ color: '#cf1322', fontSize: '24px', fontWeight: 'bold' }}
-              prefix={<BugOutlined style={{ marginRight: 8, fontSize: '18px' }} />}
+              title={
+                <span style={{ color: '#8c8c8c', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <DatabaseOutlined style={{ color: queueColor, fontSize: '14px' }} /> Queue Status
+                </span>
+              }
+              value={`${stats.queueLength} Pending`}
+              valueStyle={{ color: queueColor, fontSize: '18px', fontWeight: 'bold' }}
             />
             <div style={{ marginTop: 4, color: '#8c8c8c', fontSize: '11px' }}>
-              Rejected or failed events
+              {stats.runningJobs} Processing
             </div>
           </Card>
         </Col>
         <Col xs={24} sm={12} md={6} lg={6} xl={6}>
-          <Card bordered={false} className="stat-card" style={{ borderLeft: '4px solid #ff7a45', backgroundColor: '#191919' }}>
+          <Card bordered={false} className="stat-card" style={{ borderLeft: `4px solid ${alertCardColor}`, backgroundColor: '#191919' }}>
             <Statistic
-              title={<span style={{ color: '#8c8c8c', fontSize: '12px' }}>Open Incidents</span>}
-              value={stats.openIncidents}
-              valueStyle={{ color: '#ff7a45', fontSize: '24px', fontWeight: 'bold' }}
-              prefix={<WarningFilled style={{ marginRight: 8, fontSize: '18px', color: '#ff7a45' }} />}
+              title={
+                <span style={{ color: '#8c8c8c', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <WarningFilled style={{ color: alertCardColor, fontSize: '14px' }} /> Active Alerts
+                </span>
+              }
+              value={`${criticalAlerts} Critical`}
+              valueStyle={{ color: criticalAlerts > 0 ? '#ff4d4f' : '#8c8c8c', fontSize: '18px', fontWeight: 'bold' }}
             />
-            <div style={{ marginTop: 4, color: '#8c8c8c', fontSize: '11px' }}>
-              Requires resolution
+            <div style={{ marginTop: 4, color: warningAlerts > 0 ? '#faad14' : '#8c8c8c', fontSize: '11px', fontWeight: warningAlerts > 0 ? 600 : 400 }}>
+              {warningAlerts} Warning
             </div>
           </Card>
         </Col>
