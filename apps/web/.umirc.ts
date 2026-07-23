@@ -6,6 +6,12 @@ export default defineConfig({
   model: {},
   initialState: {},
   request: {},
+  proxy: {
+    '/api': {
+      target: 'http://localhost:3000',
+      changeOrigin: true,
+    },
+  },
   layout: {
     title: 'CloudOps',
     layout: 'side',
@@ -25,6 +31,12 @@ export default defineConfig({
       path: '/dashboard',
       component: './Dashboard',
       icon: 'DashboardOutlined',
+    },
+    {
+      name: 'Cloud Accounts',
+      path: '/cloud-accounts',
+      component: './CloudAccounts',
+      icon: 'CloudOutlined',
     },
     {
       name: 'Event Sources',

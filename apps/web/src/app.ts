@@ -15,7 +15,8 @@ import {
   ClockCircleOutlined,
   BarChartOutlined,
   SettingOutlined,
-  CalendarOutlined
+  CalendarOutlined,
+  CloudOutlined
 } from '@ant-design/icons';
 import type { RunTimeLayoutConfig } from '@umijs/max';
 import HeaderActions from '@/components/HeaderActions';
@@ -25,6 +26,8 @@ const getHeaderInfo = (pathname: string) => {
   switch (pathname) {
     case '/dashboard':
       return { title: 'System Health Overview', sub: 'Real-time cloud operations, jobs, workers and incidents' };
+    case '/cloud-accounts':
+      return { title: 'Cloud Accounts', sub: 'Manage cloud provider accounts, IAM roles, and cross-account access permissions' };
     case '/pipelines':
       return { title: 'Event Workflows', sub: 'Configure rule-based diagnostic event workflows' };
     case '/data-sources':
@@ -56,6 +59,8 @@ const getHeaderIcon = (pathname: string) => {
   switch (pathname) {
     case '/dashboard':
       return React.createElement(DashboardOutlined, { style: iconStyle });
+    case '/cloud-accounts':
+      return React.createElement(CloudOutlined, { style: iconStyle });
     case '/pipelines':
       return React.createElement(SyncOutlined, { style: iconStyle });
     case '/data-sources':
@@ -346,6 +351,22 @@ export const layout: RunTimeLayoutConfig = ({ initialState, setInitialState }) =
   };
 };
 
+export const request = {
+  requestInterceptors: [
+    (url: string, options: any) => {
+      const token = localStorage.getItem('dataflow_token');
+      const headers = options.headers || {};
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+      return {
+        url,
+        options: { ...options, headers },
+      };
+    },
+  ],
+};
+
 // Wrap with Ant Design Dark Theme ConfigProvider (muted coral theme)
 export function rootContainer(container: React.ReactNode) {
   return React.createElement(
@@ -369,7 +390,7 @@ export function rootContainer(container: React.ReactNode) {
           },
           Table: {
             colorBgContainer: '#191919',
-            colorHeaderBg: '#161616',
+            headerBg: '#161616',
           },
           Menu: {
             colorItemBgSelected: 'rgba(226, 111, 84, 0.12)',
