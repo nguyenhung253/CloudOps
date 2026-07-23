@@ -4,6 +4,35 @@ import { ValidationPipe } from '@nestjs/common';
 import { ResponseInterceptor, GlobalExceptionFilter } from '@app/common';
 import cookieParser from 'cookie-parser';
 import { Logger } from 'nestjs-pino';
+import { PrismaService } from '@app/database';
+import Redis from 'ioredis';
+
+async function checkDatabase(app: any): Promise<boolean> {
+  try {
+    const prisma = app.get(PrismaService);
+    await prisma.$queryRaw`SELECT 1`;
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+
+async function checkRedis(): Promise<boolean> {
+  const redisUrl = process.env.REDIS_URL || 'redis://localhost:6379';
+  const redis = new Redis(redisUrl, {
+    maxRetriesPerRequest: 0,
+    connectTimeout: 1000,
+  });
+  redis.on('error', () => {}); // Prevent unhandled error event crash
+  try {
+    await redis.ping();
+    return true;
+  } catch (e) {
+    return false;
+  } finally {
+    redis.disconnect();
+  }
+}
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, {
@@ -18,6 +47,9 @@ async function bootstrap() {
   const port = process.env.PORT ?? 3000;
   await app.listen(port);
   
+  const dbConnected = await checkDatabase(app);
+  const redisConnected = await checkRedis();
+
   console.log(`
 ============================================================
                     CloudOps Platform
@@ -31,9 +63,9 @@ async function bootstrap() {
  Swagger     : http://localhost:${port}/api/docs
  Web         : http://localhost:8000
 
- Database    : PostgreSQL ✓
- Cache       : Redis ✓
- Queue       : BullMQ ✓
+ Database    : PostgreSQL ${dbConnected ? '✓' : '✗'}
+ Cache       : Redis ${redisConnected ? '✓' : '✗'}
+ Queue       : BullMQ ${redisConnected ? '✓' : '✗'}
 
 ============================================================`);
 

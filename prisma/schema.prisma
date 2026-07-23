@@ -161,6 +161,7 @@ model User {
   sessions           Session[]
   auditLogs          AuditLog[]
   cloudAccounts      CloudAccount[]
+  connectionChecks   CloudConnectionCheck[]
   jobs               Job[]
   alertRules         AlertRule[]
   acknowledgedAlerts Alert[]            @relation("AcknowledgedAlerts")
@@ -210,11 +211,12 @@ model CloudAccount {
 
   creator User @relation(fields: [createdBy], references: [id], onDelete: Restrict)
 
-  regions    CloudAccountRegion[]
-  resources  CloudResource[]
-  jobs       Job[]
-  logQueries LogQuery[]
-  alertRules AlertRule[]
+  regions          CloudAccountRegion[]
+  connectionChecks CloudConnectionCheck[]
+  resources        CloudResource[]
+  jobs             Job[]
+  logQueries       LogQuery[]
+  alertRules       AlertRule[]
 
   @@unique([provider, providerAccountId])
   @@map("cloud_accounts")
@@ -232,6 +234,26 @@ model CloudAccountRegion {
 
   @@unique([cloudAccountId, region])
   @@map("cloud_account_regions")
+}
+
+model CloudConnectionCheck {
+  id              String   @id @default(uuid()) @db.Uuid
+  cloudAccountId  String   @map("cloud_account_id") @db.Uuid
+  success         Boolean
+  assumedRoleArn  String?  @map("assumed_role_arn") @db.Text
+  callerAccountId String?  @map("caller_account_id") @db.VarChar(32)
+  callerArn       String?  @map("caller_arn") @db.Text
+  errorCode       String?  @map("error_code") @db.VarChar(100)
+  errorMessage    String?  @map("error_message") @db.Text
+  durationMs      Int?     @map("duration_ms")
+  requestedBy     String?  @map("requested_by") @db.Uuid
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  cloudAccount CloudAccount @relation(fields: [cloudAccountId], references: [id], onDelete: Cascade)
+  requester    User?        @relation(fields: [requestedBy], references: [id], onDelete: SetNull)
+
+  @@index([cloudAccountId, createdAt(sort: Desc)])
+  @@map("cloud_connection_checks")
 }
 
 model CloudResource {
