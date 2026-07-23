@@ -6,7 +6,7 @@ import {
   CloudServerOutlined, 
   MailOutlined
 } from '@ant-design/icons';
-import { history, useModel } from '@umijs/max';
+import { history, useModel, request } from '@umijs/max';
 import styles from './index.less';
 
 const Login: React.FC = () => {
@@ -19,41 +19,60 @@ const Login: React.FC = () => {
     setLoading(true);
     try {
       if (isLogin) {
-        let role = 'viewer';
-        if (values.username.toLowerCase() === 'admin') {
-          role = 'admin';
-        } else if (values.username.toLowerCase() === 'operator') {
-          role = 'operator';
-        }
+        // Real login API call
+        const response = await request('/api/v1/auth/login', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          data: {
+            email: values.email,
+            password: values.password,
+          },
+        });
 
-        // Mock login token saving
-        localStorage.setItem('dataflow_token', 'mock_jwt_token_xxxx');
-        localStorage.setItem('dataflow_user_role', role);
-        localStorage.setItem('dataflow_username', values.username);
+        const { accessToken, user } = response.data || response;
+
+        // Save token and user info
+        localStorage.setItem('dataflow_token', accessToken);
+        localStorage.setItem('dataflow_user_role', user.role.toLowerCase());
+        localStorage.setItem('dataflow_username', user.fullName || user.email);
 
         // Update initial state
         await setInitialState({
           currentUser: {
-            name: values.username,
+            name: user.fullName || user.email,
             avatar: 'https://gw.alipayobjects.com/zos/antfincdn/XAosamN5UP/BiazfanxmamNRoxxVxka.png',
-            role: role,
+            role: user.role.toLowerCase(),
           }
         });
 
-        message.success(`Đăng nhập thành công với quyền ${role.toUpperCase()}`);
+        message.success(`Đăng nhập thành công với quyền ${user.role.toUpperCase()}`);
         history.push('/dashboard');
       } else {
-        // Mock signup
         if (values.password !== values.confirmPassword) {
           message.error('Mật khẩu xác nhận không khớp!');
           return;
         }
+        // Real register API call
+        await request('/api/v1/auth/register', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          data: {
+            email: values.email,
+            password: values.password,
+            fullName: values.username,
+          },
+        });
         message.success('Đăng ký tài khoản thành công! Vui lòng đăng nhập.');
         setIsLogin(true);
         form.resetFields();
       }
-    } catch (error) {
-      message.error(isLogin ? 'Đăng nhập thất bại, vui lòng thử lại.' : 'Đăng ký thất bại, vui lòng thử lại.');
+    } catch (error: any) {
+      const errMsg = error.response?.data?.message || error.message || 'Thao tác thất bại, vui lòng thử lại.';
+      message.error(errMsg);
     } finally {
       setLoading(false);
     }
@@ -99,37 +118,37 @@ const Login: React.FC = () => {
         <Form
           form={form}
           name="loginForm"
-          initialValues={{ username: 'admin', role: 'admin' }}
+          initialValues={{ email: '', password: '' }}
           onFinish={onFinish}
           layout="vertical"
           size="large"
         >
-          <Form.Item
-            name="username"
-            rules={[{ required: true, message: 'Vui lòng nhập tên đăng nhập!' }]}
-          >
-            <Input 
-              prefix={<UserOutlined className={styles.inputIcon} />} 
-              placeholder="Username" 
-              className={styles.loginInput}
-            />
-          </Form.Item>
-
-          <div className={`${styles.transitionField} ${!isLogin ? styles.transitionFieldVisible : ''}`}>
+          {!isLogin && (
             <Form.Item
-              name="email"
-              rules={isLogin ? [] : [
-                { required: true, message: 'Vui lòng nhập email!' },
-                { type: 'email', message: 'Email không hợp lệ!' }
-              ]}
+              name="username"
+              rules={[{ required: true, message: 'Vui lòng nhập tên đăng nhập!' }]}
             >
               <Input 
-                prefix={<MailOutlined className={styles.inputIcon} />} 
-                placeholder="Email Address" 
+                prefix={<UserOutlined className={styles.inputIcon} />} 
+                placeholder="Full Name" 
                 className={styles.loginInput}
               />
             </Form.Item>
-          </div>
+          )}
+
+          <Form.Item
+            name="email"
+            rules={[
+              { required: true, message: 'Vui lòng nhập email!' },
+              { type: 'email', message: 'Email không hợp lệ!' }
+            ]}
+          >
+            <Input 
+              prefix={<MailOutlined className={styles.inputIcon} />} 
+              placeholder="Email Address" 
+              className={styles.loginInput}
+            />
+          </Form.Item>
 
           <Form.Item
             name="password"
@@ -142,10 +161,10 @@ const Login: React.FC = () => {
             />
           </Form.Item>
 
-          <div className={`${styles.transitionField} ${!isLogin ? styles.transitionFieldVisible : ''}`}>
+          {!isLogin && (
             <Form.Item
               name="confirmPassword"
-              rules={isLogin ? [] : [{ required: true, message: 'Vui lòng xác nhận mật khẩu!' }]}
+              rules={[{ required: true, message: 'Vui lòng xác nhận mật khẩu!' }]}
             >
               <Input.Password
                 prefix={<LockOutlined className={styles.inputIcon} />}
@@ -153,9 +172,7 @@ const Login: React.FC = () => {
                 className={styles.loginInput}
               />
             </Form.Item>
-          </div>
-
-
+          )}
 
           <Form.Item style={{ marginTop: 32, marginBottom: 8 }}>
             <Button
