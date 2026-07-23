@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Row, Col, Card, Statistic, Progress, Badge, List, Tag, Space, Button, Switch, Tooltip, notification, message } from 'antd';
+import { Row, Col, Card, Statistic, Progress, Badge, List, Tag, Space, Button, Switch, Tooltip, notification, message, Select } from 'antd';
 import { 
   CloudServerOutlined, 
   DatabaseOutlined, 
@@ -20,7 +20,7 @@ import {
   RightOutlined
 } from '@ant-design/icons';
 import { PageContainer } from '@ant-design/pro-components';
-import { history } from '@umijs/max';
+import { history, request } from '@umijs/max';
 
 interface TerminalLine {
   text: string;
@@ -67,8 +67,15 @@ const MiniLineChart: React.FC<{ data: number[]; color: string }> = ({ data, colo
   );
 };
 
+const { Option } = Select;
+
 const Dashboard: React.FC = () => {
   const terminalEndRef = useRef<HTMLDivElement>(null);
+
+  const [accounts, setAccounts] = useState<any[]>([]);
+  const [selectedAccountId, setSelectedAccountId] = useState<string | null>(null);
+  const [resourceSummary, setResourceSummary] = useState<any>(null);
+  const [loadingSummary, setLoadingSummary] = useState<boolean>(false);
 
   // Real-time state
   const [isAutoRefresh, setIsAutoRefresh] = useState(true);
@@ -123,6 +130,38 @@ const Dashboard: React.FC = () => {
 
   const [isExecutingJob, setIsExecutingJob] = useState(false);
 
+  useEffect(() => {
+    const fetchAccounts = async () => {
+      try {
+        const res = await request('/api/v1/cloud-accounts');
+        const list = res.data || res;
+        setAccounts(list);
+        if (list.length > 0) {
+          setSelectedAccountId(list[0].id);
+        }
+      } catch (err) {
+        console.error('Failed to fetch cloud accounts', err);
+      }
+    };
+    fetchAccounts();
+  }, []);
+
+  useEffect(() => {
+    if (!selectedAccountId) return;
+    const fetchResourceSummary = async () => {
+      setLoadingSummary(true);
+      try {
+        const res = await request(`/api/v1/cloud-accounts/${selectedAccountId}/resource-summary`);
+        setResourceSummary(res.data || res);
+      } catch (err) {
+        console.error('Failed to fetch resource summary', err);
+        setResourceSummary(null);
+      } finally {
+        setLoadingSummary(false);
+      }
+    };
+    fetchResourceSummary();
+  }, [selectedAccountId]);
 
   // Simulation timer for realtime telemetry & background logs
   useEffect(() => {
@@ -417,71 +456,101 @@ const Dashboard: React.FC = () => {
   }
 
   return (
-    <PageContainer title={false}>
+    <PageContainer 
+      title={<span style={{ color: '#fff', fontSize: '20px', fontWeight: 600 }}>Dashboard</span>}
+      extra={
+        accounts.length > 0 ? (
+          <Space>
+            <span style={{ color: '#8c8c8c', fontSize: '13px' }}>AWS Account:</span>
+            <Select
+              value={selectedAccountId}
+              onChange={(val) => setSelectedAccountId(val)}
+              style={{ width: 240 }}
+              dropdownStyle={{ backgroundColor: '#141414' }}
+            >
+              {accounts.map(acc => (
+                <Option key={acc.id} value={acc.id} style={{ color: '#fff' }}>
+                  {acc.name} ({acc.providerAccountId})
+                </Option>
+              ))}
+            </Select>
+          </Space>
+        ) : null
+      }
+    >
       
       {/* 1. CloudOps Status Banner Cards */}
       <Row gutter={[16, 16]} style={{ marginBottom: '20px' }}>
         <Col xs={24} sm={12} md={6} lg={6} xl={6}>
-          <Card bordered={false} className="stat-card" style={{ borderLeft: `4px solid ${healthConfig.color}`, backgroundColor: '#191919' }}>
+          <Card bordered={false} className="stat-card" style={{ borderLeft: '4px solid #ff7a45', backgroundColor: '#191919' }} loading={loadingSummary}>
             <Statistic
               title={
                 <span style={{ color: '#8c8c8c', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                  <span style={{ display: 'inline-block', width: '8px', height: '8px', borderRadius: '50%', backgroundColor: healthConfig.color }} /> System Health
+                  <CloudServerOutlined style={{ color: '#ff7a45', fontSize: '14px' }} /> EC2 Instances
                 </span>
               }
-              value={healthConfig.label}
-              valueStyle={{ color: healthConfig.color, fontSize: '18px', fontWeight: 'bold' }}
+              value={resourceSummary ? `${resourceSummary.resources?.ec2?.total ?? 0} total` : '-'}
+              valueStyle={{ color: '#fff', fontSize: '18px', fontWeight: 'bold' }}
             />
             <div style={{ marginTop: 4, color: '#8c8c8c', fontSize: '11px' }}>
-              99.98% Uptime
+              <span style={{ color: '#52c41a', fontWeight: 600 }}>
+                {resourceSummary?.resources?.ec2?.running ?? 0} running
+              </span>
+              {' · '}
+              <span style={{ color: '#ff4d4f' }}>
+                {resourceSummary?.resources?.ec2?.stopped ?? 0} stopped
+              </span>
             </div>
           </Card>
         </Col>
+
         <Col xs={24} sm={12} md={6} lg={6} xl={6}>
-          <Card bordered={false} className="stat-card" style={{ borderLeft: '4px solid #faad14', backgroundColor: '#191919' }}>
+          <Card bordered={false} className="stat-card" style={{ borderLeft: '4px solid #13c2c2', backgroundColor: '#191919' }} loading={loadingSummary}>
             <Statistic
               title={
                 <span style={{ color: '#8c8c8c', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                  <ThunderboltOutlined style={{ color: '#faad14', fontSize: '14px' }} /> Event Throughput
+                  <span style={{ display: 'inline-block', width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#13c2c2' }} /> VPC Networks
                 </span>
               }
-              value={`${throughput} Events/min`}
-              valueStyle={{ color: '#faad14', fontSize: '18px', fontWeight: 'bold' }}
-            />
-            <div style={{ marginTop: 4, color: '#52c41a', fontSize: '11px', fontWeight: 600 }}>
-              {throughputTrend}
-            </div>
-          </Card>
-        </Col>
-        <Col xs={24} sm={12} md={6} lg={6} xl={6}>
-          <Card bordered={false} className="stat-card" style={{ borderLeft: `4px solid ${queueColor}`, backgroundColor: '#191919' }}>
-            <Statistic
-              title={
-                <span style={{ color: '#8c8c8c', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                  <DatabaseOutlined style={{ color: queueColor, fontSize: '14px' }} /> Queue Status
-                </span>
-              }
-              value={`${stats.queueLength} Pending`}
-              valueStyle={{ color: queueColor, fontSize: '18px', fontWeight: 'bold' }}
+              value={resourceSummary ? `${resourceSummary.resources?.vpcs ?? 0} VPC` : '-'}
+              valueStyle={{ color: '#fff', fontSize: '18px', fontWeight: 'bold' }}
             />
             <div style={{ marginTop: 4, color: '#8c8c8c', fontSize: '11px' }}>
-              {stats.runningJobs} Processing
+              {resourceSummary?.resources?.subnets ?? 0} subnets
             </div>
           </Card>
         </Col>
+
         <Col xs={24} sm={12} md={6} lg={6} xl={6}>
-          <Card bordered={false} className="stat-card" style={{ borderLeft: `4px solid ${alertCardColor}`, backgroundColor: '#191919' }}>
+          <Card bordered={false} className="stat-card" style={{ borderLeft: '4px solid #722ed1', backgroundColor: '#191919' }} loading={loadingSummary}>
             <Statistic
               title={
                 <span style={{ color: '#8c8c8c', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                  <WarningFilled style={{ color: alertCardColor, fontSize: '14px' }} /> Active Alerts
+                  <DatabaseOutlined style={{ color: '#722ed1', fontSize: '14px' }} /> Security Groups
                 </span>
               }
-              value={`${criticalAlerts} Critical`}
-              valueStyle={{ color: criticalAlerts > 0 ? '#ff4d4f' : '#8c8c8c', fontSize: '18px', fontWeight: 'bold' }}
+              value={resourceSummary ? `${resourceSummary.resources?.securityGroups ?? 0} configured` : '-'}
+              valueStyle={{ color: '#fff', fontSize: '18px', fontWeight: 'bold' }}
             />
-            <div style={{ marginTop: 4, color: warningAlerts > 0 ? '#faad14' : '#8c8c8c', fontSize: '11px', fontWeight: warningAlerts > 0 ? 600 : 400 }}>
-              {warningAlerts} Warning
+            <div style={{ marginTop: 4, color: '#8c8c8c', fontSize: '11px' }}>
+              Firewall security rules
+            </div>
+          </Card>
+        </Col>
+
+        <Col xs={24} sm={12} md={6} lg={6} xl={6}>
+          <Card bordered={false} className="stat-card" style={{ borderLeft: '4px solid #2f54eb', backgroundColor: '#191919' }} loading={loadingSummary}>
+            <Statistic
+              title={
+                <span style={{ color: '#8c8c8c', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <FolderOpenOutlined style={{ color: '#2f54eb', fontSize: '14px' }} /> EBS Volumes
+                </span>
+              }
+              value={resourceSummary ? `${resourceSummary.resources?.volumes ?? 0} volumes` : '-'}
+              valueStyle={{ color: '#fff', fontSize: '18px', fontWeight: 'bold' }}
+            />
+            <div style={{ marginTop: 4, color: '#8c8c8c', fontSize: '11px' }}>
+              attached/storage volumes
             </div>
           </Card>
         </Col>
