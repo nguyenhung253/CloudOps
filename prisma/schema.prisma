@@ -146,6 +146,15 @@ enum LogQueryStatus {
   @@map("log_query_status")
 }
 
+enum ResourceSyncStatus {
+  RUNNING
+  SUCCEEDED
+  FAILED
+  PARTIAL
+
+  @@map("resource_sync_status")
+}
+
 model User {
   id           String     @id @default(uuid()) @db.Uuid
   email        String     @unique @db.VarChar(255)
@@ -158,20 +167,21 @@ model User {
   updatedAt    DateTime   @updatedAt @map("updated_at") @db.Timestamptz
   deletedAt    DateTime?  @map("deleted_at") @db.Timestamptz
 
-  sessions           Session[]
-  auditLogs          AuditLog[]
-  cloudAccounts      CloudAccount[]
-  connectionChecks   CloudConnectionCheck[]
-  jobs               Job[]
-  alertRules         AlertRule[]
-  acknowledgedAlerts Alert[]            @relation("AcknowledgedAlerts")
-  resolvedAlerts     Alert[]            @relation("ResolvedAlerts")
-  alertEvents        AlertEvent[]
-  assignedIncidents  Incident[]         @relation("AssignedIncidents")
-  createdIncidents   Incident[]         @relation("CreatedIncidents")
-  linkedAlerts       IncidentAlert[]
-  timelineEvents     IncidentTimeline[]
-  evidence           IncidentEvidence[]
+  sessions              Session[]
+  auditLogs             AuditLog[]
+  cloudAccounts         CloudAccount[]
+  connectionChecks      CloudConnectionCheck[]
+  jobs                  Job[]
+  alertRules            AlertRule[]
+  acknowledgedAlerts    Alert[]               @relation("AcknowledgedAlerts")
+  resolvedAlerts        Alert[]               @relation("ResolvedAlerts")
+  alertEvents           AlertEvent[]
+  assignedIncidents     Incident[]            @relation("AssignedIncidents")
+  createdIncidents      Incident[]            @relation("CreatedIncidents")
+  linkedAlerts          IncidentAlert[]
+  timelineEvents        IncidentTimeline[]
+  evidence              IncidentEvidence[]
+  resourceSyncSnapshots ResourceSyncSnapshot[]
 
   @@index([status, role])
   @@map("users")
@@ -214,6 +224,7 @@ model CloudAccount {
   regions          CloudAccountRegion[]
   connectionChecks CloudConnectionCheck[]
   resources        CloudResource[]
+  syncSnapshots    ResourceSyncSnapshot[]
   jobs             Job[]
   logQueries       LogQuery[]
   alertRules       AlertRule[]
@@ -273,7 +284,8 @@ model CloudResource {
   createdAt          DateTime      @default(now()) @map("created_at") @db.Timestamptz
   updatedAt          DateTime      @updatedAt @map("updated_at") @db.Timestamptz
 
-  cloudAccount CloudAccount @relation(fields: [cloudAccountId], references: [id], onDelete: Cascade)
+  cloudAccount CloudAccount   @relation(fields: [cloudAccountId], references: [id], onDelete: Cascade)
+  resourceTags ResourceTag[]
 
   jobs             Job[]
   metricPoints     MetricPoint[]
@@ -286,7 +298,49 @@ model CloudResource {
   @@unique([provider, cloudAccountId, region, resourceType, providerResourceId])
   @@index([cloudAccountId, region, resourceType])
   @@index([resourceType, status, isActive])
+  @@index([name])
   @@map("cloud_resources")
+}
+
+model ResourceTag {
+  id         String   @id @default(uuid()) @db.Uuid
+  resourceId String   @map("resource_id") @db.Uuid
+  key        String   @db.VarChar(128)
+  value      String   @db.VarChar(256)
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  resource CloudResource @relation(fields: [resourceId], references: [id], onDelete: Cascade)
+
+  @@unique([resourceId, key])
+  @@index([key, value])
+  @@map("resource_tags")
+}
+
+model ResourceSyncSnapshot {
+  id                String             @id @default(uuid()) @db.Uuid
+  cloudAccountId    String             @map("cloud_account_id") @db.Uuid
+  provider          CloudProvider
+  status            ResourceSyncStatus
+  resourceTypes     String[]           @map("resource_types")
+  regions           String[]
+  startedAt         DateTime           @map("started_at") @db.Timestamptz
+  finishedAt        DateTime?          @map("finished_at") @db.Timestamptz
+  durationMs        Int?               @map("duration_ms")
+  discoveredCount   Int                @default(0) @map("discovered_count")
+  createdCount      Int                @default(0) @map("created_count")
+  updatedCount      Int                @default(0) @map("updated_count")
+  inactivatedCount  Int                @default(0) @map("inactivated_count")
+  errorCode         String?            @map("error_code") @db.VarChar(100)
+  errorMessage      String?            @map("error_message") @db.Text
+  summary           Json               @default("{}")
+  requestedBy       String?            @map("requested_by") @db.Uuid
+  createdAt         DateTime           @default(now()) @map("created_at") @db.Timestamptz
+
+  cloudAccount CloudAccount @relation(fields: [cloudAccountId], references: [id], onDelete: Cascade)
+  requester    User?        @relation(fields: [requestedBy], references: [id], onDelete: SetNull)
+
+  @@index([cloudAccountId, startedAt(sort: Desc)])
+  @@map("resource_sync_snapshots")
 }
 
 model Job {
