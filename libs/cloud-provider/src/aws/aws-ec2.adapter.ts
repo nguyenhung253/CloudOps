@@ -6,7 +6,14 @@ import {
   DescribeSubnetsCommand,
   DescribeSecurityGroupsCommand,
   DescribeVolumesCommand,
+  type Instance,
+  type SecurityGroup,
+  type Volume,
 } from '@aws-sdk/client-ec2';
+import { normalizeEc2Instances } from './ec2-instance.normalizer';
+import { normalizeEbsVolumes } from './ebs-volume.normalizer';
+import { normalizeSecurityGroups } from './security-group.normalizer';
+import type { CloudResourceSnapshot } from '../types/cloud-resource.types';
 
 export interface AssumedCredentials {
   accessKeyId: string;
@@ -39,6 +46,109 @@ export class AwsEc2Adapter {
         sessionToken: credentials.sessionToken,
       },
     });
+  }
+
+  /**
+   * Describe all EC2 instances in a region (paginated) and normalize to
+   * the shared CloudResourceSnapshot model.
+   */
+  async describeInstances(
+    credentials: AssumedCredentials,
+    region: string,
+    cloudAccountId: string,
+  ): Promise<CloudResourceSnapshot[]> {
+    const client = this.createClient(region, credentials);
+    const instances: Instance[] = [];
+    let nextToken: string | undefined;
+
+    do {
+      const response = await client.send(
+        new DescribeInstancesCommand({
+          NextToken: nextToken,
+        }),
+      );
+
+      for (const reservation of response.Reservations ?? []) {
+        for (const instance of reservation.Instances ?? []) {
+          instances.push(instance);
+        }
+      }
+
+      nextToken = response.NextToken;
+    } while (nextToken);
+
+    this.logger.debug(
+      `DescribeInstances region=${region} account=${cloudAccountId} count=${instances.length}`,
+    );
+
+    return normalizeEc2Instances(instances, { cloudAccountId, region });
+  }
+
+  /**
+   * Describe all EBS volumes in a region (paginated).
+   */
+  async describeVolumes(
+    credentials: AssumedCredentials,
+    region: string,
+    cloudAccountId: string,
+  ): Promise<CloudResourceSnapshot[]> {
+    const client = this.createClient(region, credentials);
+    const volumes: Volume[] = [];
+    let nextToken: string | undefined;
+
+    do {
+      const response = await client.send(
+        new DescribeVolumesCommand({
+          NextToken: nextToken,
+        }),
+      );
+
+      for (const volume of response.Volumes ?? []) {
+        volumes.push(volume);
+      }
+
+      nextToken = response.NextToken;
+    } while (nextToken);
+
+    this.logger.debug(
+      `DescribeVolumes region=${region} account=${cloudAccountId} count=${volumes.length}`,
+    );
+
+    return normalizeEbsVolumes(volumes, { cloudAccountId, region });
+  }
+
+  /**
+   * Describe all security groups in a region (paginated).
+   */
+  async describeSecurityGroups(
+    credentials: AssumedCredentials,
+    region: string,
+    cloudAccountId: string,
+  ): Promise<CloudResourceSnapshot[]> {
+    const client = this.createClient(region, credentials);
+    const groups: SecurityGroup[] = [];
+    let nextToken: string | undefined;
+
+    do {
+      const response = await client.send(
+        new DescribeSecurityGroupsCommand({
+          NextToken: nextToken,
+          MaxResults: 1000,
+        }),
+      );
+
+      for (const group of response.SecurityGroups ?? []) {
+        groups.push(group);
+      }
+
+      nextToken = response.NextToken;
+    } while (nextToken);
+
+    this.logger.debug(
+      `DescribeSecurityGroups region=${region} account=${cloudAccountId} count=${groups.length}`,
+    );
+
+    return normalizeSecurityGroups(groups, { cloudAccountId, region });
   }
 
   async fetchResourceSummary(
