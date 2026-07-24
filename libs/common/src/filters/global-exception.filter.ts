@@ -51,43 +51,45 @@ export class GlobalExceptionFilter implements ExceptionFilter {
         if (body.message) {
           message = Array.isArray(body.message) ? body.message[0] : body.message;
         }
-        if (body.error) {
-          code = body.error.toUpperCase().replace(/\s+/g, '_') as ErrorCode;
-        }
         if (Array.isArray(body.message)) {
           code = ErrorCode.VALIDATION_ERROR;
-          message = 'Request validation failed';
-          details = body.message.map((msg: string) => {
-            const field = msg.split(' ')[0] || 'field';
+          const mappedDetails = body.message.map((msg: string) => {
+            const field = this.guessValidationField(msg);
             return {
               field,
-              message: msg,
+              message: this.humanizeValidationMessage(msg, field),
             };
           });
+          details = mappedDetails;
+          // Prefer the first field message over a generic banner
+          message = mappedDetails[0]?.message || 'Dữ liệu gửi lên không hợp lệ';
         }
+      } else if (typeof resBody === 'string') {
+        message = resBody;
       }
 
-      // Map specific HTTP statuses to standard error codes
-      if (statusCode === HttpStatus.UNAUTHORIZED) {
+      // Prefer explicit business codes from message heuristics before generic HTTP mapping
+      const semantic = this.mapAuthAndDomainMessage(message);
+      if (semantic) {
+        code = semantic.code;
+        message = semantic.message;
+      } else if (statusCode === HttpStatus.UNAUTHORIZED) {
         code = ErrorCode.UNAUTHORIZED;
+        // Never surface raw Nest "Unauthorized" / "Authorization" wording to clients
+        if (this.isGenericAuthMessage(message)) {
+          message = 'Phiên đăng nhập không hợp lệ hoặc đã hết hạn';
+        }
       } else if (statusCode === HttpStatus.FORBIDDEN) {
         code = ErrorCode.FORBIDDEN;
+        if (this.isGenericAuthMessage(message)) {
+          message = 'Bạn không có quyền thực hiện thao tác này';
+        }
       } else if (statusCode === HttpStatus.NOT_FOUND) {
         code = ErrorCode.RESOURCE_NOT_FOUND;
       } else if (statusCode === HttpStatus.CONFLICT) {
         code = ErrorCode.RESOURCE_CONFLICT;
       } else if (statusCode === HttpStatus.BAD_REQUEST && code !== ErrorCode.VALIDATION_ERROR) {
         code = ErrorCode.VALIDATION_ERROR;
-      }
-
-      // Map specific messages to standard error codes
-      const lowerMessage = message.toLowerCase();
-      if (lowerMessage.includes('invalid email or password') || lowerMessage.includes('invalid credentials')) {
-        code = ErrorCode.INVALID_CREDENTIALS;
-      } else if (lowerMessage.includes('token reuse detected') || lowerMessage.includes('session revoked due to token reuse')) {
-        code = ErrorCode.REFRESH_TOKEN_REUSED;
-      } else if (lowerMessage.includes('expired')) {
-        code = ErrorCode.TOKEN_EXPIRED;
       }
 
       return {
@@ -106,5 +108,140 @@ export class GlobalExceptionFilter implements ExceptionFilter {
       message: error?.message || 'Internal server error',
       details: undefined,
     };
+  }
+
+  private isGenericAuthMessage(message: string): boolean {
+    const lower = (message || '').toLowerCase();
+    return (
+      !message ||
+      lower === 'unauthorized' ||
+      lower === 'forbidden' ||
+      lower.includes('authorization') ||
+      lower.includes('www-authenticate') ||
+      lower === 'request failed with status code 401' ||
+      lower === 'request failed with status code 403'
+    );
+  }
+
+  private mapAuthAndDomainMessage(
+    message: string,
+  ): { code: ErrorCode; message: string } | null {
+    const lower = (message || '').toLowerCase();
+
+    if (
+      lower.includes('invalid email or password') ||
+      lower.includes('email or password is incorrect') ||
+      lower.includes('invalid credentials') ||
+      lower.includes('email hoặc mật khẩu')
+    ) {
+      return {
+        code: ErrorCode.INVALID_CREDENTIALS,
+        message: 'Email hoặc mật khẩu không chính xác',
+      };
+    }
+
+    if (lower.includes('account is locked') || lower.includes('tài khoản đã bị khóa')) {
+      return {
+        code: ErrorCode.ACCOUNT_LOCKED,
+        message: 'Tài khoản của bạn đã bị khóa. Vui lòng liên hệ quản trị viên',
+      };
+    }
+
+    if (
+      lower.includes('account is disabled') ||
+      lower.includes('account is not active') ||
+      lower.includes('tài khoản đã bị vô hiệu')
+    ) {
+      return {
+        code: ErrorCode.ACCOUNT_DISABLED,
+        message: 'Tài khoản của bạn đã bị vô hiệu hóa',
+      };
+    }
+
+    if (lower.includes('email already exists') || lower.includes('email đã được')) {
+      return {
+        code: ErrorCode.EMAIL_ALREADY_EXISTS,
+        message: 'Email này đã được đăng ký',
+      };
+    }
+
+    if (lower.includes('refresh token missing')) {
+      return {
+        code: ErrorCode.REFRESH_TOKEN_MISSING,
+        message: 'Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại',
+      };
+    }
+
+    if (
+      lower.includes('token reuse detected') ||
+      lower.includes('session revoked due to token reuse')
+    ) {
+      return {
+        code: ErrorCode.REFRESH_TOKEN_REUSED,
+        message: 'Phiên đăng nhập không còn hợp lệ. Vui lòng đăng nhập lại',
+      };
+    }
+
+    if (
+      lower.includes('invalid or expired refresh token') ||
+      lower.includes('jwt expired') ||
+      (lower.includes('expired') && lower.includes('token'))
+    ) {
+      return {
+        code: ErrorCode.TOKEN_EXPIRED,
+        message: 'Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại',
+      };
+    }
+
+    return null;
+  }
+
+  private guessValidationField(msg: string): string {
+    // class-validator default: "<property> must be ..."
+    const propertyMatch = msg.match(/^([a-zA-Z0-9_]+)\s/);
+    if (propertyMatch) {
+      return propertyMatch[1];
+    }
+
+    const lower = msg.toLowerCase();
+    if (lower.includes('email')) return 'email';
+    if (lower.includes('password') || lower.includes('mật khẩu')) return 'password';
+    if (lower.includes('fullname') || lower.includes('full name') || lower.includes('họ tên')) {
+      return 'fullName';
+    }
+    return 'field';
+  }
+
+  /** Translate common class-validator English defaults into Vietnamese. */
+  private humanizeValidationMessage(msg: string, field: string): string {
+    // Already Vietnamese custom messages from DTOs
+    if (/[àáạảãâầấậẩẫăằắặẳẵèéẹẻẽêềếệểễìíịỉĩòóọỏõôồốộổỗơờớợởỡùúụủũưừứựửữỳýỵỷỹđ]/i.test(msg)) {
+      return msg;
+    }
+
+    const lower = msg.toLowerCase();
+    const fieldLabel =
+      field === 'email'
+        ? 'Email'
+        : field === 'password'
+          ? 'Mật khẩu'
+          : field === 'fullName'
+            ? 'Họ tên'
+            : 'Trường này';
+
+    if (lower.includes('must be longer than or equal to') || lower.includes('must be at least')) {
+      const lenMatch = msg.match(/(\d+)/);
+      const len = lenMatch?.[1] ?? '6';
+      return `${fieldLabel} phải có ít nhất ${len} ký tự`;
+    }
+    if (lower.includes('should not be empty') || lower.includes('must be a string')) {
+      return `Vui lòng nhập ${fieldLabel.toLowerCase()}`;
+    }
+    if (lower.includes('must be an email') || lower.includes('email')) {
+      return 'Email không hợp lệ';
+    }
+
+    // Strip leading property name from default class-validator wording
+    return msg.replace(/^[a-zA-Z0-9_]+\s+/, '').replace(/^./, (c) => c.toUpperCase());
   }
 }

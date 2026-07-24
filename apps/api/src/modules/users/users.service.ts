@@ -1,11 +1,11 @@
 import {
   Injectable,
-  ConflictException,
   NotFoundException,
   ForbiddenException,
   BadRequestException,
 } from '@nestjs/common';
 import { PrismaService } from '@app/database';
+import { ApplicationError, ErrorCode } from '@app/common';
 import { User, UserRole, UserStatus, Prisma } from '@prisma/client';
 import * as argon2 from 'argon2';
 import { CreateUserDto } from './dto/create-user.dto';
@@ -50,7 +50,11 @@ export class UsersService {
     });
 
     if (existingUser) {
-      throw new ConflictException('Email already exists');
+      throw new ApplicationError(
+        ErrorCode.EMAIL_ALREADY_EXISTS,
+        'Email này đã được đăng ký',
+        409,
+      );
     }
 
     const passwordHash = await argon2.hash(dto.password);

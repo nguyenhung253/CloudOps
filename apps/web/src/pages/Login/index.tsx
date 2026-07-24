@@ -7,6 +7,7 @@ import {
   MailOutlined
 } from '@ant-design/icons';
 import { history, useModel, request } from '@umijs/max';
+import { extractApiError, getApiErrorMessage } from '@/utils/api-error';
 import styles from './index.less';
 
 const Login: React.FC = () => {
@@ -14,6 +15,28 @@ const Login: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const { setInitialState } = useModel('@@initialState');
   const [form] = Form.useForm();
+
+  const showAuthError = (error: unknown) => {
+    const parsed = extractApiError(error);
+
+    // Map validation details onto form fields when possible
+    if (parsed.code === 'VALIDATION_ERROR' && parsed.details?.length) {
+      const fieldErrors = parsed.details
+        .filter((d) => d.field && d.message)
+        .map((d) => ({
+          name: d.field === 'fullName' ? 'username' : d.field!,
+          errors: [d.message!],
+        }));
+      if (fieldErrors.length > 0) {
+        form.setFields(fieldErrors);
+        // Field-level error is enough; toast the first friendly field message
+        message.error(fieldErrors[0].errors[0]);
+        return;
+      }
+    }
+
+    message.error(parsed.message || getApiErrorMessage(error));
+  };
 
   const onFinish = async (values: any) => {
     setLoading(true);
@@ -29,6 +52,8 @@ const Login: React.FC = () => {
             email: values.email,
             password: values.password,
           },
+          // Let us handle 4xx with friendly copy instead of umi default
+          skipErrorHandler: true,
         });
 
         const { accessToken, user } = response.data || response;
@@ -47,7 +72,8 @@ const Login: React.FC = () => {
           }
         });
 
-        message.success(`Đăng nhập thành công với quyền ${user.role.toUpperCase()}`);
+        const displayName = user.fullName || user.email;
+        message.success(`Xin chào ${displayName}, đăng nhập thành công!`);
         history.push('/dashboard');
       } else {
         if (values.password !== values.confirmPassword) {
@@ -65,19 +91,18 @@ const Login: React.FC = () => {
             password: values.password,
             fullName: values.username,
           },
+          skipErrorHandler: true,
         });
         message.success('Đăng ký tài khoản thành công! Vui lòng đăng nhập.');
         setIsLogin(true);
         form.resetFields();
       }
-    } catch (error: any) {
-      const errMsg = error.response?.data?.message || error.message || 'Thao tác thất bại, vui lòng thử lại.';
-      message.error(errMsg);
+    } catch (error: unknown) {
+      showAuthError(error);
     } finally {
       setLoading(false);
     }
   };
-
   const toggleMode = () => {
     setIsLogin(!isLogin);
     form.resetFields();
@@ -152,7 +177,12 @@ const Login: React.FC = () => {
 
           <Form.Item
             name="password"
-            rules={[{ required: true, message: 'Vui lòng nhập mật khẩu!' }]}
+            rules={[
+              { required: true, message: 'Vui lòng nhập mật khẩu!' },
+              ...(!isLogin
+                ? [{ min: 6, message: 'Mật khẩu phải có ít nhất 6 ký tự' }]
+                : []),
+            ]}
           >
             <Input.Password
               prefix={<LockOutlined className={styles.inputIcon} />}
@@ -164,7 +194,18 @@ const Login: React.FC = () => {
           {!isLogin && (
             <Form.Item
               name="confirmPassword"
-              rules={[{ required: true, message: 'Vui lòng xác nhận mật khẩu!' }]}
+              dependencies={['password']}
+              rules={[
+                { required: true, message: 'Vui lòng xác nhận mật khẩu!' },
+                ({ getFieldValue }) => ({
+                  validator(_, value) {
+                    if (!value || getFieldValue('password') === value) {
+                      return Promise.resolve();
+                    }
+                    return Promise.reject(new Error('Mật khẩu xác nhận không khớp!'));
+                  },
+                }),
+              ]}
             >
               <Input.Password
                 prefix={<LockOutlined className={styles.inputIcon} />}

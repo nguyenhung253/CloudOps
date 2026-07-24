@@ -8,9 +8,9 @@ import {
   Headers,
   HttpCode,
   HttpStatus,
-  UnauthorizedException,
   UseGuards,
 } from '@nestjs/common';
+import { ApplicationError, ErrorCode } from '@app/common';
 import { AuthService } from './auth.service';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
@@ -78,7 +78,11 @@ export class AuthController {
   ) {
     const refreshToken = req.cookies?.[REFRESH_COOKIE];
     if (!refreshToken) {
-      throw new UnauthorizedException('Refresh token missing');
+      throw new ApplicationError(
+        ErrorCode.REFRESH_TOKEN_MISSING,
+        'Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại',
+        401,
+      );
     }
     const result = await this.authService.refresh(refreshToken, ip, userAgent || '');
     this.setRefreshCookie(res, result.refreshToken);
