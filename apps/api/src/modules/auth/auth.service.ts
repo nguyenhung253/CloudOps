@@ -1,10 +1,7 @@
-import {
-  Injectable,
-  UnauthorizedException,
-  ForbiddenException,
-} from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { PrismaService } from '@app/database';
+import { ApplicationError, ErrorCode } from '@app/common';
 import { UsersService } from '../users/users.service';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
@@ -67,20 +64,37 @@ export class AuthService {
   async login(dto: LoginDto, ipAddress: string, userAgent: string) {
     const user = await this.usersService.findByEmail(dto.email);
     if (!user) {
-      throw new UnauthorizedException('Invalid email or password');
+      // Same message for missing user and bad password — avoid account enumeration
+      throw new ApplicationError(
+        ErrorCode.INVALID_CREDENTIALS,
+        'Email hoặc mật khẩu không chính xác',
+        401,
+      );
     }
 
     const isPasswordValid = await argon2.verify(user.passwordHash, dto.password);
     if (!isPasswordValid) {
-      throw new UnauthorizedException('Invalid email or password');
+      throw new ApplicationError(
+        ErrorCode.INVALID_CREDENTIALS,
+        'Email hoặc mật khẩu không chính xác',
+        401,
+      );
     }
 
     if (user.status === UserStatus.LOCKED) {
-      throw new ForbiddenException('Your account is locked');
+      throw new ApplicationError(
+        ErrorCode.ACCOUNT_LOCKED,
+        'Tài khoản của bạn đã bị khóa. Vui lòng liên hệ quản trị viên',
+        403,
+      );
     }
 
     if (user.status === UserStatus.DISABLED) {
-      throw new ForbiddenException('Your account is disabled');
+      throw new ApplicationError(
+        ErrorCode.ACCOUNT_DISABLED,
+        'Tài khoản của bạn đã bị vô hiệu hóa',
+        403,
+      );
     }
 
     await this.prisma.user.update({
@@ -132,7 +146,11 @@ export class AuthService {
     try {
       payload = this.jwtService.verify<RefreshTokenPayload>(refreshToken);
     } catch {
-      throw new UnauthorizedException('Invalid or expired refresh token');
+      throw new ApplicationError(
+        ErrorCode.TOKEN_EXPIRED,
+        'Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại',
+        401,
+      );
     }
 
     const tokenHash = this.hashToken(refreshToken);
@@ -146,22 +164,38 @@ export class AuthService {
       if (payload.tf) {
         await this.revokeTokenFamily(payload.tf);
       }
-      throw new UnauthorizedException('Invalid or expired refresh token');
+      throw new ApplicationError(
+        ErrorCode.TOKEN_EXPIRED,
+        'Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại',
+        401,
+      );
     }
 
     // Nếu refresh token đã bị revoke thì revoke toàn bộ family
     if (session.revokedAt !== null) {
       await this.revokeTokenFamily(session.tokenFamily);
-      throw new UnauthorizedException('Session revoked due to token reuse detection');
+      throw new ApplicationError(
+        ErrorCode.REFRESH_TOKEN_REUSED,
+        'Phiên đăng nhập không còn hợp lệ. Vui lòng đăng nhập lại',
+        401,
+      );
     }
 
     if (session.expiresAt < new Date()) {
-      throw new UnauthorizedException('Invalid or expired refresh token');
+      throw new ApplicationError(
+        ErrorCode.TOKEN_EXPIRED,
+        'Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại',
+        401,
+      );
     }
 
     const user = session.user;
     if (user.status !== UserStatus.ACTIVE) {
-      throw new ForbiddenException('User account is not active');
+      throw new ApplicationError(
+        ErrorCode.ACCOUNT_DISABLED,
+        'Tài khoản của bạn không còn hoạt động',
+        403,
+      );
     }
 
     const newSessionId = crypto.randomUUID();
