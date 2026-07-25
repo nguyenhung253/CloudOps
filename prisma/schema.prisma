@@ -369,9 +369,29 @@ model Job {
   requester    User?          @relation(fields: [requestedBy], references: [id], onDelete: SetNull)
 
   executions JobExecution[]
+  events     JobEvent[]
   logQueries LogQuery[]
 
+  @@index([status, createdAt(sort: Desc)])
+  @@index([type, status])
+  @@index([cloudAccountId, createdAt(sort: Desc)])
+  @@index([requestedBy, createdAt(sort: Desc)])
   @@map("jobs")
+}
+
+model JobEvent {
+  id        String   @id @default(uuid()) @db.Uuid
+  jobId     String   @map("job_id") @db.Uuid
+  eventType String   @map("event_type") @db.VarChar(80)
+  message   String?  @db.Text
+  progress  Int?     @db.SmallInt
+  payload   Json     @default("{}")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  job Job @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  @@index([jobId, createdAt(sort: Desc)])
+  @@map("job_events")
 }
 
 model JobExecution {
