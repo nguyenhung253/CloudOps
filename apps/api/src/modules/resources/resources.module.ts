@@ -5,9 +5,10 @@ import { ResourcesService } from './resources.service';
 import { ResourcesController } from './resources.controller';
 import { ResourceSyncController } from './resource-sync.controller';
 import { AuditLogsModule } from '../audit-logs/audit-logs.module';
+import { JobsModule } from '../jobs/jobs.module';
 
 @Module({
-  imports: [DatabaseModule, CloudProviderModule, AuditLogsModule],
+  imports: [DatabaseModule, CloudProviderModule, AuditLogsModule, JobsModule],
   controllers: [ResourcesController, ResourceSyncController],
   providers: [ResourcesService],
   exports: [ResourcesService],

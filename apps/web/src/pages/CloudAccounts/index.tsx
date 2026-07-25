@@ -92,6 +92,78 @@ const CloudAccounts: React.FC = () => {
   const [resourcesMap, setResourcesMap] = useState<Record<string, any>>({});
   const [loadingResources, setLoadingResources] = useState<Record<string, boolean>>({});
   const [syncingId, setSyncingId] = useState<string | null>(null);
+  const [activeSyncJobs, setActiveSyncJobs] = useState<Record<string, {
+    jobId: string;
+    status: string;
+    progress: number;
+    error?: string | null;
+  }>>({});
+
+  const pollTimers = React.useRef<Record<string, NodeJS.Timeout>>({});
+
+  const jobErrorMessage = (resultSummary: any, status?: string): string | null => {
+    if (!resultSummary && status !== 'FAILED') return null;
+    return (
+      resultSummary?.lastError ||
+      resultSummary?.errorMessage ||
+      resultSummary?.error ||
+      (status === 'FAILED' ? 'Sync job failed' : null)
+    );
+  };
+
+  const startPollJob = (accountId: string, jobId: string) => {
+    if (pollTimers.current[accountId]) {
+      clearInterval(pollTimers.current[accountId]);
+    }
+
+    const pollOnce = async () => {
+      try {
+        const jobRes = await request(`/api/v1/jobs/${jobId}`);
+        const job = jobRes?.data ?? jobRes;
+        const { status, progress, resultSummary } = job;
+
+        setActiveSyncJobs(prev => ({
+          ...prev,
+          [accountId]: {
+            jobId,
+            status,
+            progress: progress || 0,
+            error: jobErrorMessage(resultSummary, status),
+          }
+        }));
+
+        if (status === 'SUCCEEDED' || status === 'FAILED' || status === 'CANCELLED' || status === 'TIMED_OUT') {
+          clearInterval(pollTimers.current[accountId]);
+          delete pollTimers.current[accountId];
+
+          if (status === 'SUCCEEDED') {
+            message.success('Đồng bộ tài nguyên thành công.');
+          } else {
+            const errMsg = jobErrorMessage(resultSummary, status) || 'Lỗi không xác định';
+            message.error(`Đồng bộ tài nguyên thất bại: ${errMsg}`);
+          }
+
+          // Refresh resource summary
+          try {
+            const res = await request(`/api/v1/cloud-accounts/${accountId}/resource-summary`);
+            const data = res.data || res;
+            if (data && data.resources) {
+              setResourcesMap(prev => ({ ...prev, [accountId]: data.resources }));
+            }
+          } catch (e) {
+            // ignore
+          }
+          fetchAccounts();
+        }
+      } catch (error) {
+        console.error('Error polling job:', error);
+      }
+    };
+
+    // First tick immediately, then every 1.5s
+    void pollOnce();
+    pollTimers.current[accountId] = setInterval(pollOnce, 1500);
+  };
 
   const formatRelativeTime = (dateString: string | null) => {
     if (!dateString) return 'Never';
@@ -133,25 +205,26 @@ const CloudAccounts: React.FC = () => {
 
   const handleSync = async (id: string) => {
     setSyncingId(id);
-    const hide = message.loading('Đang đồng bộ dữ liệu tài nguyên AWS...', 0);
+    const hide = message.loading('Đang gửi yêu cầu đồng bộ tài nguyên AWS...', 0);
     try {
-      const testRes = await request(`/api/v1/cloud-accounts/${id}/test-connection`, {
+      const res = await request(`/api/v1/cloud-accounts/${id}/resources/sync`, {
         method: 'POST',
       });
-      const testData = testRes.data || testRes;
-      
-      const res = await request(`/api/v1/cloud-accounts/${id}/resource-summary`);
       const data = res.data || res;
-      if (data && data.resources) {
-        setResourcesMap(prev => ({ ...prev, [id]: data.resources }));
-      }
-      
-      if (testData.success) {
-        message.success('Đồng bộ tài nguyên thành công.');
+      if (data && data.jobId) {
+        message.success(`Yêu cầu đồng bộ đã được chấp nhận. Job ID: ${data.jobId}`);
+        setActiveSyncJobs(prev => ({
+          ...prev,
+          [id]: {
+            jobId: data.jobId,
+            status: 'PENDING',
+            progress: 0,
+          }
+        }));
+        startPollJob(id, data.jobId);
       } else {
-        message.warning(`Đồng bộ hoàn tất nhưng phát hiện lỗi kết nối: ${testData.errorMessage}`);
+        message.error('Không nhận được thông tin Job từ hệ thống.');
       }
-      fetchAccounts();
     } catch (error: any) {
       message.error(error.response?.data?.message || 'Đồng bộ tài nguyên thất bại.');
     } finally {
@@ -193,6 +266,9 @@ const CloudAccounts: React.FC = () => {
   useEffect(() => {
     fetchAccounts();
     fetchBackendInfo();
+    return () => {
+      Object.values(pollTimers.current).forEach(clearInterval);
+    };
   }, []);
 
   const handleOpenDrawer = (account?: CloudAccount) => {
@@ -445,6 +521,35 @@ const CloudAccounts: React.FC = () => {
         if (record.status !== 'CONNECTED') {
           return <span style={{ color: '#555' }}>-</span>;
         }
+        
+        const activeSync = activeSyncJobs[record.id];
+        const isJobRunning = activeSync && ['PENDING', 'QUEUED', 'RUNNING', 'RETRYING'].includes(activeSync.status);
+        
+        if (isJobRunning) {
+          return (
+            <div style={{ width: '130px' }}>
+              <div style={{ fontSize: '11px', color: '#ff7a45', marginBottom: 2 }}>
+                <SyncOutlined spin style={{ marginRight: 4 }} /> 
+                {activeSync.status}... ({activeSync.progress}%)
+              </div>
+              <div style={{
+                height: '4px',
+                width: '100%',
+                backgroundColor: '#303030',
+                borderRadius: '2px',
+                overflow: 'hidden'
+              }}>
+                <div style={{
+                  height: '100%',
+                  width: `${activeSync.progress}%`,
+                  backgroundColor: '#ff7a45',
+                  transition: 'width 0.3s ease'
+                }} />
+              </div>
+            </div>
+          );
+        }
+
         if (loadingResources[record.id]) {
           return <span style={{ color: '#ff7a45', fontSize: '12px' }}><SyncOutlined spin /> loading...</span>;
         }
@@ -479,6 +584,8 @@ const CloudAccounts: React.FC = () => {
       key: 'actions',
       render: (_: any, record: CloudAccount) => {
         const isWritable = userRole === 'admin' || userRole === 'operator';
+        const activeSync = activeSyncJobs[record.id];
+        const isJobRunning = activeSync && ['PENDING', 'QUEUED', 'RUNNING', 'RETRYING'].includes(activeSync.status);
         return (
           <Space size="middle">
             <Button 
@@ -495,9 +602,9 @@ const CloudAccounts: React.FC = () => {
               size="small" 
               type="primary" 
               ghost
-              icon={<SyncOutlined spin={testingId === record.id} />}
+              icon={<SyncOutlined spin={syncingId === record.id || isJobRunning} />}
               onClick={() => handleSync(record.id)}
-              disabled={testingId !== null || syncingId !== null || record.status === 'DISABLED' || !isWritable}
+              disabled={testingId !== null || syncingId !== null || record.status === 'DISABLED' || !isWritable || isJobRunning}
             >
               Sync
             </Button>
@@ -507,7 +614,7 @@ const CloudAccounts: React.FC = () => {
               ghost
               icon={<SyncOutlined spin={testingId === record.id} />}
               onClick={() => handleTestConnection(record.id)}
-              disabled={testingId !== null || syncingId !== null || record.status === 'DISABLED' || !isWritable}
+              disabled={testingId !== null || syncingId !== null || record.status === 'DISABLED' || !isWritable || isJobRunning}
             >
               Test
             </Button>
@@ -515,7 +622,7 @@ const CloudAccounts: React.FC = () => {
               size="small" 
               icon={<EditOutlined />}
               onClick={() => handleOpenDrawer(record)}
-              disabled={!isWritable}
+              disabled={!isWritable || isJobRunning}
             >
               Edit
             </Button>
@@ -990,10 +1097,10 @@ const CloudAccounts: React.FC = () => {
           <Button
             key="sync"
             type="primary"
-            icon={<SyncOutlined spin={syncingId === selectedAccount?.id} />}
+            icon={<SyncOutlined spin={syncingId === selectedAccount?.id || !!(selectedAccount && activeSyncJobs[selectedAccount.id] && ['PENDING', 'QUEUED', 'RUNNING', 'RETRYING'].includes(activeSyncJobs[selectedAccount.id].status))} />}
             loading={syncingId === selectedAccount?.id}
             onClick={() => selectedAccount && handleSync(selectedAccount.id)}
-            disabled={!selectedAccount || selectedAccount.status === 'DISABLED'}
+            disabled={!selectedAccount || selectedAccount.status === 'DISABLED' || !!(selectedAccount && activeSyncJobs[selectedAccount.id] && ['PENDING', 'QUEUED', 'RUNNING', 'RETRYING'].includes(activeSyncJobs[selectedAccount.id].status))}
             style={{ backgroundColor: '#ff7a45', borderColor: '#ff7a45', color: '#fff', borderRadius: '6px' }}
           >
             Sync Resources
@@ -1108,14 +1215,20 @@ const CloudAccounts: React.FC = () => {
               
               <Col span={12}>
                 <div style={{ color: '#8c8c8c', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8 }}>Resources Detected</div>
-                <Space size={8}>
-                  <Tag style={{ fontSize: '11px', borderRadius: '4px', border: '1px solid #10239e', backgroundColor: 'rgba(24, 144, 255, 0.08)', color: '#1890ff', margin: 0 }}>
-                    EC2: {resourcesMap[selectedAccount.id]?.ec2?.total ?? 0}
-                  </Tag>
-                  <Tag style={{ fontSize: '11px', borderRadius: '4px', border: '1px solid #3f1a68', backgroundColor: 'rgba(114, 46, 209, 0.08)', color: '#722ed1', margin: 0 }}>
-                    VPC: {resourcesMap[selectedAccount.id]?.vpcs ?? 0}
-                  </Tag>
-                </Space>
+                {selectedAccount && activeSyncJobs[selectedAccount.id] && ['PENDING', 'QUEUED', 'RUNNING', 'RETRYING'].includes(activeSyncJobs[selectedAccount.id].status) ? (
+                  <div style={{ fontSize: '12px', color: '#ff7a45', fontWeight: 500 }}>
+                    <SyncOutlined spin style={{ marginRight: 6 }} /> Syncing ({activeSyncJobs[selectedAccount.id].progress}%)
+                  </div>
+                ) : (
+                  <Space size={8}>
+                    <Tag style={{ fontSize: '11px', borderRadius: '4px', border: '1px solid #10239e', backgroundColor: 'rgba(24, 144, 255, 0.08)', color: '#1890ff', margin: 0 }}>
+                      EC2: {resourcesMap[selectedAccount.id]?.ec2?.total ?? 0}
+                    </Tag>
+                    <Tag style={{ fontSize: '11px', borderRadius: '4px', border: '1px solid #3f1a68', backgroundColor: 'rgba(114, 46, 209, 0.08)', color: '#722ed1', margin: 0 }}>
+                      VPC: {resourcesMap[selectedAccount.id]?.vpcs ?? 0}
+                    </Tag>
+                  </Space>
+                )}
               </Col>
 
               <Col span={12}>
