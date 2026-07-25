@@ -222,15 +222,21 @@ export class ResourcesService {
   }
 
   /**
-   * Direct (synchronous) resource sync for an account.
-   * MVP: EC2_INSTANCE only, across enabled regions (or requested subset).
+   * Execute inventory sync (runs in worker via RESOURCE_SYNC job).
+   * Loads credentials, discovers resources via AWS adapters, upserts to PostgreSQL.
    */
   async syncAccountResources(
     cloudAccountId: string,
     dto: SyncResourcesDto,
-    actor: User,
-    requestId?: string,
+    actor: Pick<User, 'id'>,
+    options?: {
+      requestId?: string;
+      onProgress?: (progress: number, message: string) => Promise<void>;
+    },
   ): Promise<SyncResourcesResult> {
+    const requestId = options?.requestId;
+    const onProgress = options?.onProgress;
+
     const account = await this.prisma.cloudAccount.findFirst({
       where: { id: cloudAccountId, deletedAt: null },
       include: { regions: true },
@@ -255,6 +261,8 @@ export class ResourcesService {
     const resourceTypes = this.resolveResourceTypes(dto.resourceTypes);
     const regions = this.resolveRegions(account.regions, dto.regions);
 
+    await onProgress?.(5, 'Creating sync snapshot');
+
     const startedAt = new Date();
     const snapshot = await this.prisma.resourceSyncSnapshot.create({
       data: {
@@ -271,6 +279,7 @@ export class ResourcesService {
 
     let credentials;
     try {
+      await onProgress?.(10, 'Assuming IAM role');
       const externalId = account.externalIdCiphertext
         ? decryptExternalId(account.externalIdCiphertext, this.encryptionSecret())
         : undefined;
@@ -319,8 +328,21 @@ export class ResourcesService {
     let inactivatedCount = 0;
     let regionFailures = 0;
 
+    const totalSteps = Math.max(1, regions.length * resourceTypes.length);
+    let step = 0;
+
     for (const region of regions) {
       for (const resourceType of resourceTypes) {
+        step += 1;
+        const progress = Math.min(
+          90,
+          15 + Math.floor((step / totalSteps) * 75),
+        );
+        await onProgress?.(
+          progress,
+          `Syncing ${resourceType} in ${region} (${step}/${totalSteps})`,
+        );
+
         try {
           const result = await this.syncRegionResourceType({
             cloudAccountId: account.id,
@@ -365,6 +387,8 @@ export class ResourcesService {
       status = ResourceSyncStatus.PARTIAL;
     }
 
+    await onProgress?.(95, 'Finalizing sync snapshot');
+
     const updatedSnapshot = await this.prisma.resourceSyncSnapshot.update({
       where: { id: snapshot.id },
       data: {
@@ -408,6 +432,8 @@ export class ResourcesService {
         inactivatedCount,
       },
     });
+
+    await onProgress?.(100, 'Resource sync completed');
 
     return {
       snapshotId: updatedSnapshot.id,
