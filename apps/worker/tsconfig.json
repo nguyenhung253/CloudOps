@@ -20,6 +20,19 @@
     "forceConsistentCasingInFileNames": true,
     "noImplicitAny": false,
     "strictBindCallApply": false,
-    "noFallthroughCasesInSwitch": false
+    "noFallthroughCasesInSwitch": false,
+    "paths": {
+      "@app/database": ["../../libs/database/src"],
+      "@app/database/*": ["../../libs/database/src/*"],
+      "@app/queue": ["../../libs/queue/src"],
+      "@app/queue/*": ["../../libs/queue/src/*"],
+      "@app/cloud-provider": ["../../libs/cloud-provider/src"],
+      "@app/cloud-provider/*": ["../../libs/cloud-provider/src/*"],
+      "@app/common": ["../../libs/common/src"],
+      "@app/common/*": ["../../libs/common/src/*"],
+      "@api/resources/*": ["../api/src/modules/resources/*"],
+      "@api/audit-logs/*": ["../api/src/modules/audit-logs/*"],
+      "@api/cloud-accounts/*": ["../api/src/modules/cloud-accounts/*"]
+    }
   }
 }
