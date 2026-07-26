@@ -3,3 +3,7 @@ export * from './types';
 export * from './redis.connection';
 export * from './queue.module';
 export * from './queue.service';
+export * from './errors/job-error.classifier';
+
+
+
