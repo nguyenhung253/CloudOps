@@ -9,6 +9,7 @@ import { AuditLogsService } from '@api/audit-logs/audit-logs.service';
 import { JobLifecycleService } from './job-lifecycle.service';
 import { JobProcessorService } from './job-processor.service';
 import { WorkerConsumer } from './worker.consumer';
+import { WorkerHeartbeatService } from './worker-heartbeat.service';
 import { JobHandlerRegistry } from './handlers/job-handler.registry';
 import { JOB_HANDLERS } from './handlers/job-handler.interface';
 import { ResourceSyncHandler } from './handlers/resource-sync.handler';
@@ -49,6 +50,7 @@ import { HealthCheckHandler } from './handlers/health-check.handler';
     AuditLogsService,
     ResourcesService,
     JobLifecycleService,
+    WorkerHeartbeatService,
     ResourceSyncHandler,
     HealthCheckHandler,
     {

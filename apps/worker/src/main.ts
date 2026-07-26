@@ -7,7 +7,9 @@ async function bootstrap() {
     logger: ['log', 'warn', 'error'],
   });
   app.useLogger(app.get(Logger));
+  app.enableShutdownHooks();
   const logger = app.get(Logger);
+
   logger.log('[WORKER] CloudOps job worker ready (BullMQ consumer)');
 
   // Keep process alive; WorkerConsumer owns the Redis connection lifecycle.
