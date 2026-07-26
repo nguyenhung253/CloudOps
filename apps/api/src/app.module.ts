@@ -22,6 +22,8 @@ import { IncidentsModule } from './modules/incidents/incidents.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
 import { AuditLogsModule } from './modules/audit-logs/audit-logs.module';
 import { DashboardModule } from './modules/dashboard/dashboard.module';
+import { WorkersModule } from './modules/workers/workers.module';
+import { QueuesModule } from './modules/queues/queues.module';
 
 @Module({
   imports: [
@@ -88,8 +90,11 @@ import { DashboardModule } from './modules/dashboard/dashboard.module';
     NotificationsModule,
     AuditLogsModule,
     DashboardModule,
+    WorkersModule,
+    QueuesModule,
   ],
 })
+
 export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer) {
     consumer.apply(RequestIdMiddleware).forRoutes('{*path}');

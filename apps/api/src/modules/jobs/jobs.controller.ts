@@ -113,4 +113,20 @@ export class JobsController {
     const job = await this.jobsService.retryEnqueue(id, user);
     return { jobId: job.id, job, accepted: true };
   }
+
+  /**
+   * POST /api/v1/jobs/:id/retry
+   * Manual retry for a failed, DLQ, or timed-out job.
+   */
+  @Post(':id/retry')
+  @Roles(UserRole.ADMIN, UserRole.OPERATOR)
+  @HttpCode(HttpStatus.ACCEPTED)
+  async retry(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: User,
+  ) {
+    const job = await this.jobsService.manualRetry(id, user);
+    return { jobId: job.id, job, accepted: true };
+  }
+
 }
