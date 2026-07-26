@@ -72,8 +72,37 @@ export class QueueService implements OnModuleDestroy {
     return this.enqueue(name, { jobId });
   }
 
+  async getJobCounts() {
+    try {
+      const counts = await this.queue.getJobCounts(
+        'waiting',
+        'active',
+        'completed',
+        'failed',
+        'delayed',
+      );
+      return {
+        name: CLOUDOPS_QUEUE_NAME,
+        ...counts,
+      };
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      this.logger.warn(`Failed to fetch Redis queue counts: ${msg}`);
+      return {
+        name: CLOUDOPS_QUEUE_NAME,
+        waiting: 0,
+        active: 0,
+        completed: 0,
+        failed: 0,
+        delayed: 0,
+        error: msg,
+      };
+    }
+  }
+
   async onModuleDestroy() {
     await this.queue.close();
     this.connection.disconnect();
   }
+
 }

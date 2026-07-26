@@ -12,6 +12,7 @@ import {
   type QueueJobPayload,
 } from '@app/queue';
 import { JobProcessorService } from './job-processor.service';
+import { WorkerHeartbeatService } from './worker-heartbeat.service';
 
 @Injectable()
 export class WorkerConsumer implements OnModuleInit, OnModuleDestroy {
@@ -19,10 +20,15 @@ export class WorkerConsumer implements OnModuleInit, OnModuleDestroy {
   private connection: Redis | null = null;
   private worker: Worker<QueueJobPayload> | null = null;
 
-  constructor(private readonly processor: JobProcessorService) {}
+  constructor(
+    private readonly processor: JobProcessorService,
+    private readonly heartbeat: WorkerHeartbeatService,
+  ) {}
 
   async onModuleInit() {
     this.connection = createRedisConnection();
+    const concurrency = Number(process.env.WORKER_CONCURRENCY || 2);
+
     this.worker = new Worker<QueueJobPayload>(
       CLOUDOPS_QUEUE_NAME,
       async (bullJob: BullJob<QueueJobPayload>) => {
@@ -40,7 +46,7 @@ export class WorkerConsumer implements OnModuleInit, OnModuleDestroy {
       },
       {
         connection: this.connection,
-        concurrency: Number(process.env.WORKER_CONCURRENCY || 2),
+        concurrency,
       },
     );
 
@@ -57,14 +63,24 @@ export class WorkerConsumer implements OnModuleInit, OnModuleDestroy {
     });
 
     this.logger.log(
-      `BullMQ worker listening on queue=${CLOUDOPS_QUEUE_NAME} concurrency=${process.env.WORKER_CONCURRENCY || 2}`,
+      `BullMQ worker listening on queue=${CLOUDOPS_QUEUE_NAME} concurrency=${concurrency} workerId=${this.heartbeat.workerId}`,
     );
   }
 
   async onModuleDestroy() {
+    this.logger.log(`Initiating graceful shutdown for worker ${this.heartbeat.workerId}...`);
+    this.heartbeat.setShutdownStatus();
+
     if (this.worker) {
-      await this.worker.close();
+      // Pause worker first so no new jobs are picked up, then close safely
+      await this.worker.pause();
+      await this.worker.close(true);
+      this.logger.log(`BullMQ worker closed gracefully.`);
     }
-    this.connection?.disconnect();
+
+    if (this.connection) {
+      this.connection.disconnect();
+      this.connection = null;
+    }
   }
 }

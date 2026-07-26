@@ -345,6 +345,61 @@ export class JobsService {
     return this.toPublic(refreshed, { enqueueError });
   }
 
+  /**
+   * Manual retry for a failed, DLQ, or timed-out job.
+   */
+  async manualRetry(id: string, actor: User): Promise<PublicJob> {
+    const job = await this.prisma.job.findUnique({ where: { id } });
+    if (!job) {
+      throw new NotFoundException('Job not found');
+    }
+    if (actor.role === UserRole.VIEWER && job.requestedBy !== actor.id) {
+      throw new NotFoundException('Job not found');
+    }
+
+    if (job.status === JobStatus.SUCCEEDED) {
+      throw new BadRequestException('Cannot retry a job that has already completed successfully');
+    }
+
+    if (
+      job.status === JobStatus.RUNNING ||
+      job.status === JobStatus.QUEUED ||
+      job.status === JobStatus.PENDING
+    ) {
+      throw new BadRequestException(`Cannot retry an active job in status ${job.status}`);
+    }
+
+    const newMaxAttempts =
+      job.attemptsMade >= job.maxAttempts ? job.attemptsMade + 3 : job.maxAttempts;
+
+    const resetJob = await this.prisma.job.update({
+      where: { id },
+      data: {
+        status: JobStatus.PENDING,
+        maxAttempts: newMaxAttempts,
+        completedAt: null,
+        cancelledAt: null,
+      },
+    });
+
+    await this.addEvent(
+      id,
+      'JOB_MANUAL_RETRY',
+      'Job manually retried by user',
+      resetJob.progress,
+      {
+        retriedBy: actor.id,
+        previousStatus: job.status,
+        maxAttempts: newMaxAttempts,
+      },
+    );
+
+    const enqueueError = await this.tryEnqueue(resetJob);
+    const refreshed = await this.prisma.job.findUniqueOrThrow({ where: { id } });
+    return this.toPublic(refreshed, { enqueueError });
+  }
+
+
   private assertMvpType(type: JobType) {
     if (!MVP_TYPES.has(type)) {
       throw new BadRequestException(

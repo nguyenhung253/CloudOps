@@ -181,9 +181,53 @@ export class JobLifecycleService {
         willRetry,
         attemptsMade: job.attemptsMade + 1,
         maxAttempts: job.maxAttempts,
-      },
+  async markTimedOut(
+    job: Job,
+    executionId: string,
+    timeoutMs: number,
+    willRetry: boolean,
+  ): Promise<void> {
+    const finishedAt = new Date();
+    const execution = await this.prisma.jobExecution.findUniqueOrThrow({
+      where: { id: executionId },
+    });
+    const durationMs = finishedAt.getTime() - execution.startedAt.getTime();
+    const nextStatus = willRetry ? JobStatus.RETRYING : JobStatus.TIMED_OUT;
+
+    await this.prisma.$transaction([
+      this.prisma.job.update({
+        where: { id: job.id },
+        data: {
+          status: nextStatus,
+          completedAt: willRetry ? null : finishedAt,
+          resultSummary: {
+            lastError: `Job execution timed out after ${timeoutMs}ms`,
+            errorCode: 'JOB_TIMEOUT',
+          } as Prisma.InputJsonValue,
+        },
+      }),
+      this.prisma.jobExecution.update({
+        where: { id: executionId },
+        data: {
+          status: ExecutionStatus.TIMED_OUT,
+          finishedAt,
+          durationMs: BigInt(durationMs),
+          errorCode: 'JOB_TIMEOUT',
+          errorType: 'TimeoutError',
+          errorMessage: `Job execution timed out after ${timeoutMs}ms`,
+        },
+      }),
+    ]);
+
+    await this.addEvent(
+      job.id,
+      willRetry ? 'JOB_RETRYING' : 'JOB_TIMED_OUT',
+      `Job execution exceeded timeout limit (${timeoutMs}ms)`,
+      job.progress,
+      { executionId, timeoutMs, willRetry },
     );
   }
+
 
   async markCancelledSkipped(jobId: string): Promise<void> {
     await this.addEvent(
