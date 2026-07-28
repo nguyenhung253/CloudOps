@@ -142,7 +142,6 @@ export class JobLifecycleService {
       where: { id: executionId },
     });
     const durationMs = finishedAt.getTime() - execution.startedAt.getTime();
-
     const nextStatus = willRetry ? JobStatus.RETRYING : JobStatus.FAILED;
 
     await this.prisma.$transaction([
@@ -179,8 +178,12 @@ export class JobLifecycleService {
       {
         executionId,
         willRetry,
-        attemptsMade: job.attemptsMade + 1,
+        attemptsMade: job.attemptsMade,
         maxAttempts: job.maxAttempts,
+      },
+    );
+  }
+
   async markTimedOut(
     job: Job,
     executionId: string,
@@ -227,7 +230,6 @@ export class JobLifecycleService {
       { executionId, timeoutMs, willRetry },
     );
   }
-
 
   async markCancelledSkipped(jobId: string): Promise<void> {
     await this.addEvent(
