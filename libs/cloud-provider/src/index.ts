@@ -3,6 +3,8 @@ export * from './cloud-provider.service';
 export * from './aws/aws-sts.adapter';
 export * from './aws/aws-ec2.adapter';
 export * from './aws/aws-elbv2.adapter';
+export * from './aws/aws-cloudwatch.adapter';
+
 export * from './aws/aws-tags.util';
 export * from './aws/ec2-instance.normalizer';
 export * from './aws/ebs-volume.normalizer';
