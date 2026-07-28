@@ -1,9 +1,14 @@
 import {
   BadRequestException,
+  Inject,
   Injectable,
   Logger,
   NotFoundException,
+  Optional,
+  forwardRef,
 } from '@nestjs/common';
+
+
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '@app/database';
 import {
@@ -18,12 +23,16 @@ import {
   CloudAccountStatus,
   CloudProvider,
   CloudResource,
+  JobType,
   Prisma,
   ResourceSyncStatus,
   User,
 } from '@prisma/client';
+
 import { decryptExternalId } from '../cloud-accounts/crypto/external-id.crypto';
 import { AuditLogsService } from '../audit-logs/audit-logs.service';
+import { JobsService } from '../jobs/jobs.service';
+
 import { ListResourcesDto } from './dto/list-resources.dto';
 import { ResourceSummaryQueryDto } from './dto/resource-summary-query.dto';
 import { SyncResourcesDto } from './dto/sync-resources.dto';
@@ -87,7 +96,12 @@ export class ResourcesService {
     private readonly awsElbv2Adapter: AwsElbv2Adapter,
     private readonly configService: ConfigService,
     private readonly auditLogsService: AuditLogsService,
+    @Optional()
+    @Inject(forwardRef(() => JobsService))
+    private readonly jobsService?: JobsService,
   ) {}
+
+
 
   private encryptionSecret(): string {
     return (
@@ -700,4 +714,68 @@ export class ResourcesService {
 
     return where;
   }
+
+  async collectMetrics(id: string, actor: User) {
+    const resource = await this.prisma.cloudResource.findUnique({
+      where: { id },
+    });
+    if (!resource) {
+      throw new NotFoundException(`Resource ${id} not found`);
+    }
+    if (!this.jobsService) {
+      throw new BadRequestException('JobsService is not available in current context');
+    }
+
+    const result = await this.jobsService.createAndEnqueue(
+
+      {
+        type: JobType.METRIC_COLLECTION,
+        cloudAccountId: resource.cloudAccountId,
+        resourceId: resource.id,
+        payload: {
+          resourceId: resource.id,
+          cloudAccountId: resource.cloudAccountId,
+        },
+      },
+      actor,
+    );
+
+    return {
+      jobId: result.job.id,
+      status: 'QUEUED',
+      accepted: true,
+    };
+
+  }
+
+  async getResourceHealth(id: string) {
+    const resource = await this.prisma.cloudResource.findUnique({
+      where: { id },
+    });
+    if (!resource) {
+      throw new NotFoundException(`Resource ${id} not found`);
+    }
+
+    const snapshots = await this.prisma.resourceHealthSnapshot.findMany({
+      where: { resourceId: id },
+      orderBy: { evaluatedAt: 'desc' },
+      take: 20,
+    });
+
+    const latest = snapshots[0] ?? null;
+
+    return {
+      resourceId: resource.id,
+      name: resource.name,
+      providerResourceId: resource.providerResourceId,
+      currentStatus: latest?.status ?? 'UNKNOWN',
+      currentHealth: latest ?? {
+        status: 'UNKNOWN',
+        reason: 'No metric or health evaluation recorded yet',
+        evaluatedAt: resource.updatedAt,
+      },
+      history: snapshots,
+    };
+  }
 }
+
