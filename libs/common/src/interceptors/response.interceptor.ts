@@ -9,7 +9,12 @@ export class ResponseInterceptor implements NestInterceptor {
     const ctx = context.switchToHttp();
     const request = ctx.getRequest();
 
+    if (request?.url?.includes('/api/docs') || request?.url?.includes('/health')) {
+      return next.handle();
+    }
+
     return next.handle().pipe(
+
       map((data: any) => {
         if (data && typeof data === 'object' && 'success' in data) {
           return data;

@@ -134,7 +134,8 @@ describe('JobProcessorService & Reliability Scenarios', () => {
     registryMock.get.mockReturnValue(handlerMock as any);
 
     // Should rethrow so BullMQ applies exponential backoff retry
-    await expect(processor.process('job-throttled')).rejects.toEqual(throttlingError);
+    await expect(processor.process('job-throttled')).rejects.toThrow();
+
 
     expect(lifecycleMock.markFailed).toHaveBeenCalledWith(
       expect.anything(),

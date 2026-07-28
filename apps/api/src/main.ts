@@ -1,6 +1,7 @@
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { ValidationPipe } from '@nestjs/common';
+import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { ResponseInterceptor, GlobalExceptionFilter } from '@app/common';
 import cookieParser from 'cookie-parser';
 import { Logger } from 'nestjs-pino';
@@ -40,13 +41,27 @@ async function bootstrap() {
   });
   app.useLogger(app.get(Logger));
   app.use(cookieParser());
-  app.setGlobalPrefix('api/v1', { exclude: ['health'] });
+  app.setGlobalPrefix('api/v1', {
+    exclude: ['health', 'api/docs', 'api/docs/(.*)', 'api/docs-json'],
+  });
+
   app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
   app.useGlobalInterceptors(new ResponseInterceptor());
   app.useGlobalFilters(new GlobalExceptionFilter());
+
+  const config = new DocumentBuilder()
+    .setTitle('CloudOps Platform API')
+    .setDescription('Cloud Infrastructure Monitoring & Operations API System')
+    .setVersion('1.0.0')
+    .addBearerAuth()
+    .build();
+
+  const document = SwaggerModule.createDocument(app, config);
+  SwaggerModule.setup('api/docs', app, document);
+
   const port = process.env.PORT ?? 3000;
   await app.listen(port);
-  
+
   const dbConnected = await checkDatabase(app);
   const redisConnected = await checkRedis();
 
@@ -70,6 +85,6 @@ async function bootstrap() {
 ============================================================`);
 
   const logger = app.get(Logger);
-  logger.log('CloudOps API started successfully');
+  logger.log('CloudOps API started successfully with Swagger UI at /api/docs');
 }
 bootstrap();

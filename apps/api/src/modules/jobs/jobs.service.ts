@@ -17,7 +17,12 @@ import {
 import { CreateJobDto } from './dto/create-job.dto';
 import { ListJobsDto } from './dto/list-jobs.dto';
 
-const MVP_TYPES = new Set<JobType>([JobType.RESOURCE_SYNC, JobType.HEALTH_CHECK]);
+const MVP_TYPES = new Set<JobType>([
+  JobType.RESOURCE_SYNC,
+  JobType.HEALTH_CHECK,
+  JobType.METRIC_COLLECTION,
+]);
+
 
 const TERMINAL_STATUSES = new Set<JobStatus>([
   JobStatus.SUCCEEDED,
@@ -411,8 +416,11 @@ export class JobsService {
   private queueNameForType(type: JobType): string {
     if (type === JobType.RESOURCE_SYNC) return QUEUE_JOB_NAMES.RESOURCE_SYNC;
     if (type === JobType.HEALTH_CHECK) return QUEUE_JOB_NAMES.HEALTH_CHECK;
+    if (type === JobType.METRIC_COLLECTION)
+      return QUEUE_JOB_NAMES.METRIC_COLLECTION ?? JobType.METRIC_COLLECTION;
     return type;
   }
+
 
   private async tryEnqueue(job: Job): Promise<string | null> {
     try {

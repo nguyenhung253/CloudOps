@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Row, Col, Card, Statistic, Progress, Badge, List, Tag, Space, Button, Switch, Tooltip, notification, message, Select } from 'antd';
 import { 
   CloudServerOutlined, 
@@ -16,16 +16,10 @@ import {
   WarningFilled,
   InfoCircleFilled,
   ClockCircleOutlined,
-  PauseCircleOutlined,
-  RightOutlined
+  ClusterOutlined,
 } from '@ant-design/icons';
 import { PageContainer } from '@ant-design/pro-components';
-import { history, request } from '@umijs/max';
-
-interface TerminalLine {
-  text: string;
-  type: 'cmd' | 'info' | 'success' | 'warn' | 'cyan';
-}
+import { request } from '@umijs/max';
 
 interface ActivityItem {
   id: string;
@@ -36,14 +30,15 @@ interface ActivityItem {
 
 // Sparkline component that draws smooth real-time charts
 const MiniLineChart: React.FC<{ data: number[]; color: string }> = ({ data, color }) => {
-  const max = Math.max(...data);
-  const min = Math.min(...data);
+  const chartData = data && data.length > 0 ? data : [20, 25, 30, 28, 35, 40];
+  const max = Math.max(...chartData);
+  const min = Math.min(...chartData);
   const range = max - min || 1;
-  const height = 50;
+  const height = 45;
   const width = 200;
-  const points = data
+  const points = chartData
     .map((val, i) => {
-      const x = (i / (data.length - 1)) * width;
+      const x = (i / (chartData.length - 1)) * width;
       const y = height - ((val - min) / range) * height;
       return `${x},${y}`;
     })
@@ -70,8 +65,6 @@ const MiniLineChart: React.FC<{ data: number[]; color: string }> = ({ data, colo
 const { Option } = Select;
 
 const Dashboard: React.FC = () => {
-  const terminalEndRef = useRef<HTMLDivElement>(null);
-
   const [accounts, setAccounts] = useState<any[]>([]);
   const [selectedAccountId, setSelectedAccountId] = useState<string | null>(null);
   const [resourceSummary, setResourceSummary] = useState<any>(null);
@@ -80,55 +73,105 @@ const Dashboard: React.FC = () => {
   // Real-time state
   const [isAutoRefresh, setIsAutoRefresh] = useState(true);
   const [secondsSinceUpdate, setSecondsSinceUpdate] = useState(0);
-  
-  const [cpu, setCpu] = useState(48);
-  const [ram, setRam] = useState(65);
-  const [throughput, setThroughput] = useState(324);
-  const [throughputTrend, setThroughputTrend] = useState('+12%');
-  
-  const [cpuHistory, setCpuHistory] = useState([45, 48, 42, 50, 52, 47, 49, 44, 48]);
-  const [ramHistory, setRamHistory] = useState([64, 65, 65, 66, 65, 64, 66, 65, 65]);
+
+  const [cpu, setCpu] = useState<number>(24.6);
+  const [cpuHistory, setCpuHistory] = useState<number[]>([25, 28, 32, 29, 35, 40, 38, 42, 45]);
+  const [networkFormatted, setNetworkFormatted] = useState<string>('↓ 18 MB  ↑ 4 MB');
 
   // CloudOps Dashboard statistics state
   const [stats, setStats] = useState({
-    totalJobs: 139,
-    runningJobs: 2,
-    failedJobs: 2,
-    activeWorkers: 4,
-    queueLength: 5,
-    openIncidents: 1,
-    alertCount: 3,
+    totalJobs: 0,
+    runningJobs: 0,
+    failedJobs: 0,
+    activeWorkers: 1,
+    queueLength: 0,
+    openIncidents: 0,
+    alertCount: 0,
+    ec2Count: 0,
+    healthyCount: 0,
+    degradedCount: 0,
+    unhealthyCount: 0,
+    unknownCount: 0,
   });
 
-  // Datadog-style Monitors State
-  const [monitors, setMonitors] = useState([
-    { key: 'cloudwatch', name: 'AWS CloudWatch Adapter', type: 'adapter', status: 'healthy', value: 'Receiving Events', uptime: '99.99%' },
-    { key: 'redis', name: 'BullMQ Redis Server', type: 'queue', status: 'healthy', value: '1.2ms latency', uptime: '99.98%' },
-    { key: 'workers', name: 'Background Workers', type: 'workers', status: 'healthy', value: '4 online / 0 busy', uptime: '100.0%' },
-    { key: 'ruleengine', name: 'CloudOps Rule Engine', type: 'engine', status: 'healthy', value: 'Active (12 rules)', uptime: '99.95%' },
-    { key: 's3', name: 'S3 Event Backup Storage', type: 'storage', status: 'healthy', value: '128 GB allocated', uptime: '100.0%' }
-  ]);
-
-  // Active Alerts state
-  const [alerts, setAlerts] = useState<any[]>([]);
-
-  // Terminal Console Logs State
-  const [terminalLogs, setTerminalLogs] = useState<TerminalLine[]>([
-    { text: '[root@cloudops-worker] cloudops_agent_init --verbose', type: 'cmd' },
-    { text: 'Initializing AWS Provider Adapter connections...', type: 'info' },
-    { text: 'Subscribed to SQS Queue: cloudops-events-queue-prod', type: 'info' },
-    { text: 'Redis BullMQ connection initialized. Background workers waiting for events...', type: 'success' },
-  ]);
-
-  // Activities logs state
-  const [activities, setActivities] = useState<ActivityItem[]>([
-    { id: '1', time: '21:08', text: 'Incident #INC-992: [CPU High] resolved', status: 'success' },
-    { id: '2', time: '21:06', text: 'AWS S3 object created event validated', status: 'info' },
-    { id: '3', time: '21:02', text: 'BullMQ background worker #03 restarted', status: 'warning' },
-    { id: '4', time: '20:59', text: 'Incident alert notification dispatched via Slack', status: 'success' }
-  ]);
-
+  // Active Incidents state
+  const [incidents, setIncidents] = useState<any[]>([]);
+  const [activities, setActivities] = useState<ActivityItem[]>([]);
   const [isExecutingJob, setIsExecutingJob] = useState(false);
+
+  // Fetch Dashboard Live API Data
+  const loadDashboardData = useCallback(async () => {
+    try {
+      const [summaryRes, healthRes, jobStatsRes, telemetryRes, incidentsRes] = await Promise.allSettled([
+        request('/api/v1/dashboard/summary'),
+        request('/api/v1/dashboard/resource-health'),
+        request('/api/v1/dashboard/job-statistics'),
+        request('/api/v1/dashboard/telemetry'),
+        request('/api/v1/incidents'),
+      ]);
+
+      const summaryData = summaryRes.status === 'fulfilled' ? (summaryRes.value.data || summaryRes.value) : null;
+      const jobStatsData = jobStatsRes.status === 'fulfilled' ? (jobStatsRes.value.data || jobStatsRes.value) : null;
+      const telemetryData = telemetryRes.status === 'fulfilled' ? (telemetryRes.value.data || telemetryRes.value) : null;
+      const incidentsData = incidentsRes.status === 'fulfilled' ? (incidentsRes.value.data || incidentsRes.value) : [];
+
+      if (summaryData) {
+        setStats(prev => ({
+          ...prev,
+          ec2Count: summaryData.resources?.ec2Count ?? 0,
+          healthyCount: summaryData.healthSummary?.HEALTHY ?? 0,
+          degradedCount: summaryData.healthSummary?.DEGRADED ?? 0,
+          unhealthyCount: summaryData.healthSummary?.UNHEALTHY ?? 0,
+          unknownCount: summaryData.healthSummary?.UNKNOWN ?? 0,
+        }));
+      }
+
+      if (jobStatsData) {
+        setStats(prev => ({
+          ...prev,
+          totalJobs: jobStatsData.totalJobs ?? 0,
+          runningJobs: jobStatsData.byStatus?.RUNNING ?? 0,
+          failedJobs: jobStatsData.byStatus?.FAILED ?? 0,
+          queueLength: (jobStatsData.byStatus?.PENDING ?? 0) + (jobStatsData.byStatus?.QUEUED ?? 0),
+        }));
+      }
+
+      if (telemetryData) {
+        if (telemetryData.cpu?.current) setCpu(telemetryData.cpu.current);
+        if (telemetryData.cpu?.history && telemetryData.cpu.history.length > 0) {
+          setCpuHistory(telemetryData.cpu.history);
+        }
+        if (telemetryData.network?.formatted) {
+          setNetworkFormatted(telemetryData.network.formatted);
+        }
+      }
+
+      if (Array.isArray(incidentsData)) {
+        setIncidents(incidentsData);
+        setStats(prev => ({
+          ...prev,
+          openIncidents: incidentsData.filter((i: any) => i.status === 'OPEN' || i.status === 'INVESTIGATING').length,
+          alertCount: incidentsData.length,
+        }));
+
+        const newActivities: ActivityItem[] = incidentsData.slice(0, 5).map((inc: any) => {
+          const dt = new Date(inc.openedAt || inc.createdAt);
+          const timeStr = `${String(dt.getHours()).padStart(2, '0')}:${String(dt.getMinutes()).padStart(2, '0')}`;
+          return {
+            id: inc.id,
+            time: timeStr,
+            text: `Incident #${inc.incidentNumber || inc.id.slice(0, 6)}: ${inc.title}`,
+            status: inc.severity === 'CRITICAL' ? 'error' : inc.severity === 'HIGH' ? 'warning' : 'info',
+          };
+        });
+        setActivities(newActivities);
+      }
+
+      setSecondsSinceUpdate(0);
+    } catch (err) {
+      console.error('Failed to load live dashboard data', err);
+    }
+  }, []);
 
   useEffect(() => {
     const fetchAccounts = async () => {
@@ -144,7 +187,8 @@ const Dashboard: React.FC = () => {
       }
     };
     fetchAccounts();
-  }, []);
+    loadDashboardData();
+  }, [loadDashboardData]);
 
   useEffect(() => {
     if (!selectedAccountId) return;
@@ -163,255 +207,131 @@ const Dashboard: React.FC = () => {
     fetchResourceSummary();
   }, [selectedAccountId]);
 
-  // Simulation timer for realtime telemetry & background logs
+  // Smart Polling (10s interval, pauses when tab is hidden)
   useEffect(() => {
     let updateInterval: NodeJS.Timeout;
     let secCounter: NodeJS.Timeout;
-    let backgroundLogInterval: NodeJS.Timeout;
 
     if (isAutoRefresh) {
       updateInterval = setInterval(() => {
-        setCpu(prev => {
-          const change = Math.floor(Math.random() * 15) - 7;
-          const next = Math.max(25, Math.min(95, prev + change));
-          setCpuHistory(history => [...history.slice(1), next]);
-          return next;
-        });
+        if (document.hidden) return;
+        loadDashboardData();
+      }, 10000);
 
-        setRam(prev => {
-          const change = Math.floor(Math.random() * 5) - 2;
-          const next = Math.max(50, Math.min(85, prev + change));
-          setRamHistory(history => [...history.slice(1), next]);
-          return next;
-        });
-
-        // Randomly simulate a processed event increment
-        setStats(prev => ({
-          ...prev,
-          totalJobs: prev.totalJobs + Math.floor(Math.random() * 2),
-          queueLength: Math.max(0, prev.queueLength + Math.floor(Math.random() * 3) - 1),
-        }));
-
-        setThroughput(prev => {
-          const change = Math.floor(Math.random() * 21) - 10;
-          const next = Math.max(200, Math.min(500, prev + change));
-          setThroughputTrend(change >= 0 ? `↑ +${Math.floor(Math.random() * 5) + 1}%` : `↓ -${Math.floor(Math.random() * 5) + 1}%`);
-          return next;
-        });
-
-        setSecondsSinceUpdate(0);
-      }, 3000);
-
-      // Background terminal operations simulation
-      backgroundLogInterval = setInterval(() => {
-        if (isExecutingJob) return; // Don't interrupt manual job logs
-
-        const backgroundCommands = [
-          { cmd: 'systemctl status cloudops-agent.service', out: 'cloudops-agent.service (v1.0.2) is active (running)...', type: 'success' },
-          { cmd: 'redis-cli ping', out: 'PONG (latency 1.15ms)', type: 'success' },
-          { cmd: 'aws sqs get-queue-attributes --attribute-names ApproximateNumberOfMessages', out: 'SQS MessagesAvailable: 5 | SQS MessagesNotVisible: 0', type: 'info' },
-          { cmd: 'pm2 status bullmq-workers', out: 'Workers Pool: [Worker_01: busy, Worker_02: idle, Worker_03: idle, Worker_04: idle]', type: 'info' }
-        ];
-
-        const selected = backgroundCommands[Math.floor(Math.random() * backgroundCommands.length)];
-        
-        setTerminalLogs(prev => [
-          ...prev,
-          { text: `[root@cloudops-worker] ${selected.cmd}`, type: 'cmd' },
-        ]);
-
-        setTimeout(() => {
-          setTerminalLogs(prev => [
-            ...prev,
-            { text: selected.out, type: selected.type as any }
-          ]);
-        }, 800); // Append directly for realistic terminal streaming speed
-      }, 5000);
+      secCounter = setInterval(() => {
+        setSecondsSinceUpdate(prev => prev + 1);
+      }, 1000);
     }
 
-    secCounter = setInterval(() => {
-      setSecondsSinceUpdate(prev => prev + 1);
-    }, 1000);
-
     return () => {
-      clearInterval(updateInterval);
-      clearInterval(secCounter);
-      if (backgroundLogInterval) clearInterval(backgroundLogInterval);
+      if (updateInterval) clearInterval(updateInterval);
+      if (secCounter) clearInterval(secCounter);
     };
-  }, [isAutoRefresh, isExecutingJob]);
+  }, [isAutoRefresh, loadDashboardData]);
 
   // Interactivity handlers for Quick Actions
-  const handleTriggerEvent = () => {
+  const handleTriggerEvent = async () => {
     if (isExecutingJob) return;
     setIsExecutingJob(true);
-    message.loading({ content: 'Simulating AWS CloudWatch CPU_HIGH Event...', key: 'event_action' });
+    message.loading({ content: 'Queuing METRIC_COLLECTION Diagnostic Job...', key: 'event_action' });
 
-    // Stream logs to terminal
-    const steps = [
-      { text: '[root@cloudops-worker] curl -X POST -H "Content-Type: application/json" -d \'{"event": "CPU_HIGH", "threshold": 90}\' http://localhost:8000/api/v1/events/aws-cloudwatch', type: 'cmd' },
-      { text: 'CloudWatch Adapter: Received event payload. Validating event signature...', type: 'info' },
-      { text: 'Signature: OK. Schema Validation: PASSED. Generated Unified Cloud Event: E-AWS-CW-9128', type: 'success' },
-      { text: 'BullMQ: Enqueued Job #1412 into Redis waiting list. [Priority: HIGH]', type: 'cyan' },
-      { text: 'Rule Engine: Evaluated (CPU > 90%) -> Result: Incident Triggered (INC-992). Dispatched alert to Slack & Email.', type: 'warn' },
-      { text: 'Incident Manager: Opened incident ticket INC-992. Timeline recorded.', type: 'success' }
-    ];
+    try {
+      const res = await request('/api/v1/jobs', {
+        method: 'POST',
+        data: {
+          type: 'METRIC_COLLECTION',
+          payload: { isDiagnostic: true },
+        },
+      });
 
-    steps.forEach((step, index) => {
-      setTimeout(() => {
-        setTerminalLogs(prev => [...prev, step as TerminalLine]);
-        if (index === steps.length - 1) {
-          // Finalize state
-          setStats(prev => ({
-            ...prev,
-            totalJobs: prev.totalJobs + 1,
-            openIncidents: prev.openIncidents + 1,
-            alertCount: prev.alertCount + 1
-          }));
+      const jobId = res?.data?.id || res?.id || 'job-queued';
 
-          // Add to activity feed
-          const now = new Date();
-          const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
-          setActivities(prev => [
-            { id: String(Date.now()), time: timeStr, text: 'Incident #INC-992: [CPU High] created', status: 'error' },
-            ...prev
-          ]);
+      notification.success({
+        message: 'Diagnostic Job Queued',
+        description: `Job #${jobId.slice(0, 8)} successfully enqueued into background worker queue.`,
+        placement: 'topRight',
+      });
 
-          notification.error({
-            message: 'Incident Alert Dispatched',
-            description: 'Incident #INC-992 successfully triggered via Rule Engine and assigned to on-call engineer.',
-            placement: 'topRight'
-          });
-          message.success({ content: 'Event simulated successfully!', key: 'event_action' });
-          setIsExecutingJob(false);
-        }
-      }, index * 400);
-    });
+      message.success({ content: 'Diagnostic job queued!', key: 'event_action' });
+
+      setTimeout(() => loadDashboardData(), 2000);
+      setTimeout(() => loadDashboardData(), 5000);
+    } catch (err: any) {
+      console.error('Failed to trigger diagnostic job', err);
+      message.error({ content: `Failed to queue job: ${err?.message || String(err)}`, key: 'event_action' });
+    } finally {
+      setIsExecutingJob(false);
+    }
   };
 
-  const handleS3UploadEvent = () => {
+  const handleS3UploadEvent = async () => {
     if (isExecutingJob) return;
     setIsExecutingJob(true);
-    message.loading({ content: 'Simulating AWS S3 ObjectCreated Event...', key: 'upload_action' });
+    message.loading({ content: 'Triggering AWS Resource Sync Job...', key: 'upload_action' });
 
-    const steps = [
-      { text: '[root@cloudops-worker] aws sns publish --topic-arn arn:aws:sns:us-east-1:123456789012:s3-events --message \'{"Records": [{"s3": {"object": {"key": "logs/2026-07.json"}}}].\'', type: 'cmd' },
-      { text: 'S3 Event Adapter: Received S3:ObjectCreated:Put event metadata.', type: 'info' },
-      { text: 'Validation: Unified Event created: E-AWS-S3-9129 [File: logs/2026-07.json]', type: 'success' },
-      { text: 'BullMQ Worker #02 processed event. Rule Engine: No incidents triggered. Archived raw event.', type: 'success' }
-    ];
+    try {
+      const res = await request('/api/v1/jobs', {
+        method: 'POST',
+        data: {
+          type: 'RESOURCE_SYNC',
+          payload: { cloudAccountId: selectedAccountId },
+        },
+      });
 
-    steps.forEach((step, index) => {
-      setTimeout(() => {
-        setTerminalLogs(prev => [...prev, step as TerminalLine]);
-        if (index === steps.length - 1) {
-          setStats(prev => ({
-            ...prev,
-            totalJobs: prev.totalJobs + 1
-          }));
+      const jobId = res?.data?.id || res?.id || 'sync-queued';
 
-          const now = new Date();
-          const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
-          setActivities(prev => [
-            { id: String(Date.now()), time: timeStr, text: 'AWS S3 object created event validated', status: 'info' },
-            ...prev
-          ]);
+      notification.success({
+        message: 'Resource Sync Enqueued',
+        description: `AWS Resource Sync Job #${jobId.slice(0, 8)} successfully enqueued into background worker queue.`,
+        placement: 'topRight',
+      });
+      message.success({ content: 'Resource Sync job queued!', key: 'upload_action' });
 
-          notification.info({
-            message: 'S3 Event Processed',
-            description: 'S3 upload event logs/2026-07.json successfully validated and archived.',
-            placement: 'topRight'
-          });
-          message.success({ content: 'S3 Event Ingested!', key: 'upload_action' });
-          setIsExecutingJob(false);
-        }
-      }, index * 400);
-    });
+      setTimeout(() => loadDashboardData(), 2000);
+      setTimeout(() => loadDashboardData(), 5000);
+    } catch (err: any) {
+      console.error('Failed to trigger resource sync job', err);
+      message.error({ content: `Failed to queue sync job: ${err?.message || String(err)}`, key: 'upload_action' });
+    } finally {
+      setIsExecutingJob(false);
+    }
   };
 
-  const handleRestartWorker = () => {
+  const handleRestartWorker = async () => {
     if (isExecutingJob) return;
     setIsExecutingJob(true);
-    message.loading({ content: 'Restarting BullMQ Worker processes...', key: 'restart_action' });
-    
-    // Set status warning
-    setMonitors(prev => prev.map(m => m.key === 'workers' ? { ...m, status: 'warning', value: '3 online / 0 busy' } : m));
+    message.loading({ content: 'Checking Workers & Queue Status...', key: 'restart_action' });
 
-    const steps = [
-      { text: '[root@cloudops-worker] pm2 restart bullmq-workers', type: 'cmd' },
-      { text: 'Sending SIGINT to 4 active node process executors...', type: 'info' },
-      { text: 'Workers terminated gracefully. Spawning clean Node worker containers...', type: 'cyan' },
-      { text: 'BullMQ workers online. Status: 4 online / 0 busy. Listening for Redis events...', type: 'success' }
-    ];
-
-    steps.forEach((step, index) => {
-      setTimeout(() => {
-        setTerminalLogs(prev => [...prev, step as TerminalLine]);
-        if (index === steps.length - 1) {
-          setMonitors(prev => prev.map(m => m.key === 'workers' ? { ...m, status: 'healthy', value: '4 online / 0 busy' } : m));
-
-          const now = new Date();
-          const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
-          setActivities(prev => [
-            { id: String(Date.now()), time: timeStr, text: 'BullMQ background worker pool restarted', status: 'warning' },
-            ...prev
-          ]);
-
-          notification.success({
-            message: 'Worker Pool Restarted',
-            description: '4 Background Workers successfully restarted and linked to Redis queue.',
-            placement: 'topRight'
-          });
-          message.success({ content: 'Workers restarted successfully!', key: 'restart_action' });
-          setIsExecutingJob(false);
-        }
-      }, index * 500);
-    });
+    try {
+      const res = await request('/api/v1/dashboard/job-statistics');
+      const data = res?.data || res;
+      notification.info({
+        message: 'Workers & Queue Operational',
+        description: `Active Queue: ${data?.byStatus?.PENDING ?? 0} waiting, ${data?.byStatus?.RUNNING ?? 0} running, ${data?.byStatus?.SUCCEEDED ?? 0} succeeded.`,
+        placement: 'topRight',
+      });
+      message.success({ content: 'Workers status verified!', key: 'restart_action' });
+    } catch (err: any) {
+      message.error({ content: `Worker check error: ${err?.message || String(err)}`, key: 'restart_action' });
+    } finally {
+      setIsExecutingJob(false);
+    }
   };
 
-  const handleFlushRedisQueue = () => {
-    if (isExecutingJob) return;
-    setIsExecutingJob(true);
-    message.loading({ content: 'Flushing Redis Active Queue states...', key: 'sync_action' });
 
-    const steps = [
-      { text: '[root@cloudops-worker] redis-cli -h localhost -p 6379 -a "******" FLUSHDB', type: 'cmd' },
-      { text: 'Connecting to Redis BullMQ memory store...', type: 'info' },
-      { text: 'Deleting all active, delayed, failed and waiting queues...', type: 'cyan' },
-      { text: 'Redis store flushed: OK. Cleared active task indexes.', type: 'success' }
-    ];
+  // Determine system health status dynamically
+  let systemHealthStatus: 'healthy' | 'degraded' | 'critical' = 'healthy';
+  if (stats.unhealthyCount > 0) {
+    systemHealthStatus = 'critical';
+  } else if (stats.degradedCount > 0) {
+    systemHealthStatus = 'degraded';
+  }
 
-    steps.forEach((step, index) => {
-      setTimeout(() => {
-        setTerminalLogs(prev => [...prev, step as TerminalLine]);
-        if (index === steps.length - 1) {
-          setStats(prev => ({
-            ...prev,
-            queueLength: 0
-          }));
-
-          const now = new Date();
-          const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
-          setActivities(prev => [
-            { id: String(Date.now()), time: timeStr, text: 'Redis BullMQ database flushed', status: 'success' },
-            ...prev
-          ]);
-
-          notification.success({
-            message: 'Redis Store Flushed',
-            description: 'Redis active database flushed. Queue length reset to 0.',
-            placement: 'topRight'
-          });
-          message.success({ content: 'Queue flushed successfully!', key: 'sync_action' });
-          setIsExecutingJob(false);
-        }
-      }, index * 400);
-    });
-  };
-
-  const dismissAlert = (id: string) => {
-    setAlerts(prev => prev.filter(alert => alert.id !== id));
-    message.info('Alert dismissed.');
-  };
+  const healthStyleMap = {
+    healthy: { label: 'System Healthy', bg: 'rgba(82, 196, 26, 0.1)', color: '#73d13d', border: 'rgba(82, 196, 26, 0.25)', dot: '#52c41a' },
+    degraded: { label: 'System Degraded', bg: 'rgba(250, 173, 20, 0.1)', color: '#ffec3d', border: 'rgba(250, 173, 20, 0.25)', dot: '#faad14' },
+    critical: { label: 'System Critical', bg: 'rgba(255, 77, 79, 0.1)', color: '#ff7875', border: 'rgba(255, 77, 79, 0.25)', dot: '#ff4d4f' }
+  }[systemHealthStatus];
 
   const getAlertIcon = (level: string) => {
     if (level === 'critical') return <CheckCircleFilled style={{ color: '#ff4d4f', fontSize: '16px' }} />;
@@ -419,439 +339,254 @@ const Dashboard: React.FC = () => {
     return <InfoCircleFilled style={{ color: '#1890ff', fontSize: '16px' }} />;
   };
 
-  // Determine system health status dynamically
-  const hasCriticalAlert = alerts.some(a => a.level === 'critical');
-  const hasWarningAlert = alerts.some(a => a.level === 'warning');
-  const hasWarningMonitor = monitors.some(m => m.status === 'warning');
-  
-  let systemHealthStatus: 'healthy' | 'degraded' | 'critical' = 'healthy';
-  if (hasCriticalAlert) {
-    systemHealthStatus = 'critical';
-  } else if (hasWarningAlert || hasWarningMonitor) {
-    systemHealthStatus = 'degraded';
-  }
-  
-  const healthConfig = {
-    healthy: { label: 'Healthy', color: '#52c41a', icon: '🟢' },
-    degraded: { label: 'Degraded', color: '#faad14', icon: '🟡' },
-    critical: { label: 'Critical', color: '#ff4d4f', icon: '🔴' }
-  }[systemHealthStatus];
+  const attentionCount = stats.degradedCount + stats.unhealthyCount;
+  const totalEc2 = stats.ec2Count > 0 ? stats.ec2Count : (resourceSummary?.ec2?.total ?? resourceSummary?.ec2Count ?? 1);
+  const healthyEc2 = stats.healthyCount > 0 ? stats.healthyCount : Math.max(1, totalEc2 - attentionCount);
 
-  // Determine queue status color dynamically
-  let queueColor = '#52c41a'; // green
-  if (stats.queueLength >= 15) {
-    queueColor = '#ff4d4f'; // red
-  } else if (stats.queueLength >= 5) {
-    queueColor = '#faad14'; // yellow
-  }
 
-  // Count alerts dynamically
-  const criticalAlerts = alerts.filter(a => a.level === 'critical').length;
-  const warningAlerts = alerts.filter(a => a.level === 'warning').length;
-  let alertCardColor = '#52c41a'; // green
-  if (criticalAlerts > 0) {
-    alertCardColor = '#ff4d4f'; // red
-  } else if (warningAlerts > 0) {
-    alertCardColor = '#faad14'; // yellow
-  }
+  const reportingCount = Math.max(0, stats.ec2Count - stats.unknownCount);
+  const coveragePercent = stats.ec2Count > 0 ? Math.round((reportingCount / stats.ec2Count) * 100) : 100;
+  const criticalCount = incidents.filter(i => i.severity === 'CRITICAL').length;
+  const investigatingCount = incidents.filter(i => i.status === 'INVESTIGATING').length;
 
   return (
-    <PageContainer 
-      title={<span style={{ color: '#fff', fontSize: '20px', fontWeight: 600 }}>Dashboard</span>}
-      extra={
-        accounts.length > 0 ? (
-          <Space>
-            <span style={{ color: '#8c8c8c', fontSize: '13px' }}>AWS Account:</span>
-            <Select
-              value={selectedAccountId}
-              onChange={(val) => setSelectedAccountId(val)}
-              style={{ width: 240 }}
-              dropdownStyle={{ backgroundColor: '#141414' }}
-            >
-              {accounts.map(acc => (
-                <Option key={acc.id} value={acc.id} style={{ color: '#fff' }}>
-                  {acc.name} ({acc.providerAccountId})
-                </Option>
-              ))}
-            </Select>
-          </Space>
-        ) : null
-      }
+    <PageContainer
+      header={{
+        title: false,
+        breadcrumb: undefined,
+      }}
     >
-      
-      {/* 1. CloudOps Status Banner Cards */}
-      <Row gutter={[16, 16]} style={{ marginBottom: '20px' }}>
-        <Col xs={24} sm={12} md={6} lg={6} xl={6}>
-          <Card bordered={false} className="stat-card" style={{ borderLeft: '4px solid #ff7a45', backgroundColor: '#191919' }} loading={loadingSummary}>
-            <Statistic
-              title={
-                <span style={{ color: '#8c8c8c', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                  <CloudServerOutlined style={{ color: '#ff7a45', fontSize: '14px' }} /> EC2 Instances
-                </span>
-              }
-              value={resourceSummary ? `${resourceSummary.resources?.ec2?.total ?? 0} total` : '-'}
-              valueStyle={{ color: '#fff', fontSize: '18px', fontWeight: 'bold' }}
-            />
-            <div style={{ marginTop: 4, color: '#8c8c8c', fontSize: '11px' }}>
-              <span style={{ color: '#52c41a', fontWeight: 600 }}>
-                {resourceSummary?.resources?.ec2?.running ?? 0} running
+
+      {/* Top Filter & Refined Status Header Card */}
+      <Card style={{ marginBottom: 20, borderRadius: 8, background: '#121824', border: '1px solid rgba(255, 255, 255, 0.08)', boxShadow: '0 4px 12px rgba(0, 0, 0, 0.3)' }}>
+        <Row justify="space-between" align="middle" gutter={[16, 16]}>
+          <Col>
+            <Space size="middle" align="center">
+              <span style={{ color: '#8c8c8c', fontSize: 13, fontWeight: 500 }}>AWS Account:</span>
+              <Select
+                value={selectedAccountId}
+                onChange={val => setSelectedAccountId(val)}
+                style={{ width: 260 }}
+                placeholder="Select Cloud Account"
+                size="small"
+              >
+                {accounts.map(acc => (
+                  <Option key={acc.id} value={acc.id}>
+                    {acc.name} ({acc.providerAccountId || acc.id.slice(0, 8)})
+                  </Option>
+                ))}
+              </Select>
+
+              {/* Refined Subtle Status Indicator */}
+              <span
+                style={{
+                  background: healthStyleMap.bg,
+                  color: healthStyleMap.color,
+                  border: `1px solid ${healthStyleMap.border}`,
+                  padding: '3px 12px',
+                  borderRadius: '16px',
+                  fontSize: '12px',
+                  fontWeight: 600,
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  marginLeft: '8px',
+                }}
+              >
+                <span
+                  style={{
+                    width: '7px',
+                    height: '7px',
+                    borderRadius: '50%',
+                    background: healthStyleMap.dot,
+                    boxShadow: `0 0 6px ${healthStyleMap.dot}`,
+                  }}
+                />
+                {healthStyleMap.label}
               </span>
-              {' · '}
-              <span style={{ color: '#ff4d4f' }}>
-                {resourceSummary?.resources?.ec2?.stopped ?? 0} stopped
+            </Space>
+          </Col>
+
+          <Col>
+            <Space size="middle" wrap align="center">
+              <span style={{ color: '#8c8c8c', fontSize: 13 }}>
+                <ClockCircleOutlined style={{ marginRight: 4 }} />
+                Updated: {secondsSinceUpdate}s ago
               </span>
+
+              <Tooltip title={isAutoRefresh ? 'Pause Auto Refresh (10s)' : 'Enable Auto Refresh (10s)'}>
+                <Switch
+                  checked={isAutoRefresh}
+                  onChange={checked => setIsAutoRefresh(checked)}
+                  checkedChildren="Auto 10s"
+                  unCheckedChildren="Paused"
+                  size="small"
+                />
+              </Tooltip>
+
+              <Button
+                type="default"
+                size="small"
+                icon={<ReloadOutlined spin={loadingSummary} />}
+                onClick={() => loadDashboardData()}
+                style={{ background: '#1a2234', borderColor: 'rgba(255,255,255,0.12)', color: '#d9d9d9' }}
+              >
+                Refresh
+              </Button>
+            </Space>
+          </Col>
+        </Row>
+      </Card>
+
+      {/* 4 Top Operational Cards */}
+      <Row gutter={[16, 16]} style={{ marginBottom: 20 }}>
+        {/* Card 1: Resource Health */}
+        <Col xs={24} sm={12} md={6}>
+          <Card style={{ borderRadius: 8, background: '#161e2e', borderTop: '3px solid #52c41a', borderLeft: 'none', borderRight: 'none', borderBottom: 'none', boxShadow: '0 4px 12px rgba(0, 0, 0, 0.25)' }}>
+            <Statistic
+              title={<span style={{ color: '#94a3b8', fontSize: 13 }}><CheckCircleOutlined style={{ color: '#52c41a' }} /> Resource Health</span>}
+              value={`${healthyEc2} healthy / ${totalEc2}`}
+              valueStyle={{ color: '#fff', fontWeight: 700, fontSize: 20 }}
+            />
+
+            <div style={{ marginTop: 8, fontSize: 12, color: attentionCount > 0 ? '#ff7875' : '#52c41a', fontWeight: 500 }}>
+              {attentionCount > 0 ? `${attentionCount} resource(s) need attention` : 'All resources healthy'}
             </div>
           </Card>
         </Col>
 
-        <Col xs={24} sm={12} md={6} lg={6} xl={6}>
-          <Card bordered={false} className="stat-card" style={{ borderLeft: '4px solid #13c2c2', backgroundColor: '#191919' }} loading={loadingSummary}>
+        {/* Card 2: Active Jobs */}
+        <Col xs={24} sm={12} md={6}>
+          <Card style={{ borderRadius: 8, background: '#161e2e', borderTop: '3px solid #1890ff', borderLeft: 'none', borderRight: 'none', borderBottom: 'none', boxShadow: '0 4px 12px rgba(0, 0, 0, 0.25)' }}>
             <Statistic
-              title={
-                <span style={{ color: '#8c8c8c', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                  <span style={{ display: 'inline-block', width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#13c2c2' }} /> VPC Networks
-                </span>
-              }
-              value={resourceSummary ? `${resourceSummary.resources?.vpcs ?? 0} VPC` : '-'}
-              valueStyle={{ color: '#fff', fontSize: '18px', fontWeight: 'bold' }}
+              title={<span style={{ color: '#94a3b8', fontSize: 13 }}><SyncOutlined style={{ color: '#1890ff' }} /> Active Jobs</span>}
+              value={`${stats.runningJobs} running`}
+              valueStyle={{ color: '#fff', fontWeight: 700, fontSize: 20 }}
             />
-            <div style={{ marginTop: 4, color: '#8c8c8c', fontSize: '11px' }}>
-              {resourceSummary?.resources?.subnets ?? 0} subnets
+            <div style={{ marginTop: 8, fontSize: 12, color: '#64748b' }}>
+              <span style={{ color: '#94a3b8' }}>{stats.queueLength} waiting</span> · <span style={{ color: stats.failedJobs > 0 ? '#ff4d4f' : '#64748b' }}>{stats.failedJobs} failed</span>
             </div>
           </Card>
         </Col>
 
-        <Col xs={24} sm={12} md={6} lg={6} xl={6}>
-          <Card bordered={false} className="stat-card" style={{ borderLeft: '4px solid #722ed1', backgroundColor: '#191919' }} loading={loadingSummary}>
+        {/* Card 3: Open Incidents */}
+        <Col xs={24} sm={12} md={6}>
+          <Card style={{ borderRadius: 8, background: '#161e2e', borderTop: '3px solid #ff4d4f', borderLeft: 'none', borderRight: 'none', borderBottom: 'none', boxShadow: '0 4px 12px rgba(0, 0, 0, 0.25)' }}>
             <Statistic
-              title={
-                <span style={{ color: '#8c8c8c', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                  <DatabaseOutlined style={{ color: '#722ed1', fontSize: '14px' }} /> Security Groups
-                </span>
-              }
-              value={resourceSummary ? `${resourceSummary.resources?.securityGroups ?? 0} configured` : '-'}
-              valueStyle={{ color: '#fff', fontSize: '18px', fontWeight: 'bold' }}
+              title={<span style={{ color: '#94a3b8', fontSize: 13 }}><BugOutlined style={{ color: '#ff4d4f' }} /> Open Incidents</span>}
+              value={stats.openIncidents}
+              valueStyle={{ color: '#fff', fontWeight: 700, fontSize: 20 }}
             />
-            <div style={{ marginTop: 4, color: '#8c8c8c', fontSize: '11px' }}>
-              Firewall security rules
+            <div style={{ marginTop: 8, fontSize: 12, color: '#64748b' }}>
+              <span style={{ color: criticalCount > 0 ? '#ff4d4f' : '#64748b', fontWeight: criticalCount > 0 ? 600 : 400 }}>{criticalCount} critical</span> · <span style={{ color: '#94a3b8' }}>{investigatingCount} investigating</span>
             </div>
           </Card>
         </Col>
 
-        <Col xs={24} sm={12} md={6} lg={6} xl={6}>
-          <Card bordered={false} className="stat-card" style={{ borderLeft: '4px solid #2f54eb', backgroundColor: '#191919' }} loading={loadingSummary}>
+        {/* Card 4: Monitoring Coverage */}
+        <Col xs={24} sm={12} md={6}>
+          <Card style={{ borderRadius: 8, background: '#161e2e', borderTop: '3px solid #13c2c2', borderLeft: 'none', borderRight: 'none', borderBottom: 'none', boxShadow: '0 4px 12px rgba(0, 0, 0, 0.25)' }}>
             <Statistic
-              title={
-                <span style={{ color: '#8c8c8c', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                  <FolderOpenOutlined style={{ color: '#2f54eb', fontSize: '14px' }} /> EBS Volumes
-                </span>
-              }
-              value={resourceSummary ? `${resourceSummary.resources?.volumes ?? 0} volumes` : '-'}
-              valueStyle={{ color: '#fff', fontSize: '18px', fontWeight: 'bold' }}
+              title={<span style={{ color: '#94a3b8', fontSize: 13 }}><ThunderboltOutlined style={{ color: '#13c2c2' }} /> Monitoring Coverage</span>}
+              value={`${coveragePercent}%`}
+              valueStyle={{ color: '#fff', fontWeight: 700, fontSize: 20 }}
             />
-            <div style={{ marginTop: 4, color: '#8c8c8c', fontSize: '11px' }}>
-              attached/storage volumes
+            <div style={{ marginTop: 8, fontSize: 12, color: '#64748b' }}>
+              {reportingCount}/{totalEc2} resources reporting
             </div>
           </Card>
         </Col>
       </Row>
 
-      {/* 2. Main Resource Telemetry & Quick Actions */}
+
+
+      {/* Main Content Area */}
       <Row gutter={[16, 16]}>
-        {/* Real-time Telemetry */}
+        {/* Left Column: Real-time Telemetry & Monitors */}
         <Col xs={24} lg={16}>
-          <Card 
+          {/* Telemetry Charts */}
+          <Card
             title={
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
-                <span style={{ color: '#fff', fontSize: '16px', fontWeight: 600 }}>Resource Allocation Telemetry</span>
-                <Space size="middle">
-                  <span style={{ color: '#8c8c8c', fontSize: '11px' }}>
-                    {isAutoRefresh ? `Last updated: ${secondsSinceUpdate}s ago` : 'Auto Refresh Paused'}
-                  </span>
-                  <Tooltip title={isAutoRefresh ? 'Pause Simulation' : 'Resume Simulation'}>
-                    <Switch
-                      checkedChildren={<SyncOutlined spin />}
-                      unCheckedChildren={<PauseCircleOutlined />}
-                      checked={isAutoRefresh}
-                      onChange={(checked) => setIsAutoRefresh(checked)}
-                      style={{ backgroundColor: isAutoRefresh ? '#e26f54' : '#333' }}
-                    />
-                  </Tooltip>
-                </Space>
-              </div>
-            } 
-            bordered={false}
+              <Space>
+                <ThunderboltOutlined style={{ color: '#fa8c16' }} />
+                <span style={{ color: '#f1f5f9', fontWeight: 600 }}>Resource Allocation Telemetry</span>
+              </Space>
+            }
+            extra={<Tag color="blue" style={{ borderRadius: '12px' }}>Live Telemetry</Tag>}
+            style={{ borderRadius: 8, marginBottom: 20, background: '#121824', border: '1px solid rgba(255, 255, 255, 0.08)', boxShadow: '0 4px 12px rgba(0, 0, 0, 0.25)' }}
           >
-            <Row gutter={24}>
-              <Col xs={24} sm={12}>
-                <div style={{ marginBottom: 16 }}>
-                  <div style={{ color: '#8c8c8c', fontSize: '13px' }}>CPU Utilization</div>
-                  <div style={{ display: 'flex', alignItems: 'baseline', gap: '8px', margin: '4px 0' }}>
-                    <span style={{ fontSize: '26px', fontWeight: 'bold', color: '#fff' }}>{cpu}%</span>
-                    <Tag color={cpu > 80 ? 'red' : cpu > 60 ? 'warning' : 'success'} style={{ fontSize: '10px' }}>
-                      {cpu > 80 ? 'CRITICAL' : cpu > 60 ? 'HIGH' : 'NORMAL'}
-                    </Tag>
+            <Row gutter={[16, 16]}>
+              <Col xs={24} md={12}>
+                <div style={{ background: '#1a2234', padding: 16, borderRadius: 8, border: '1px solid rgba(255, 255, 255, 0.06)' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
+                    <span style={{ color: '#94a3b8', fontSize: 13 }}>CPU Utilization</span>
+                    <Tag color={cpu > 85 ? 'red' : cpu > 70 ? 'warning' : 'green'}>{cpu.toFixed(1)}%</Tag>
                   </div>
-                  <Progress 
-                    percent={cpu} 
-                    status={cpu > 80 ? 'exception' : 'active'} 
-                    strokeColor={cpu > 80 ? '#ff4d4f' : cpu > 60 ? '#faad14' : '#52c41a'} 
-                    showInfo={false} 
-                    strokeWidth={6}
-                  />
-                </div>
-                <div style={{ marginTop: 12 }}>
-                  <span style={{ color: '#555', fontSize: '11px', display: 'block', marginBottom: '8px' }}>Real-time sparkline (3s polling)</span>
-                  <MiniLineChart data={cpuHistory} color={cpu > 80 ? '#ff4d4f' : cpu > 60 ? '#faad14' : '#52c41a'} />
+                  <Progress percent={Math.round(cpu)} status={cpu > 85 ? 'exception' : 'active'} strokeColor="#52c41a" />
+                  <div style={{ marginTop: 12 }}>
+                    <MiniLineChart data={cpuHistory} color="#52c41a" />
+                  </div>
                 </div>
               </Col>
-              
-              <Col xs={24} sm={12}>
-                <div style={{ marginBottom: 16 }}>
-                  <div style={{ color: '#8c8c8c', fontSize: '13px' }}>Memory Allocation</div>
-                  <div style={{ display: 'flex', alignItems: 'baseline', gap: '8px', margin: '4px 0' }}>
-                    <span style={{ fontSize: '26px', fontWeight: 'bold', color: '#fff' }}>{ram}%</span>
-                    <Tag color={ram > 80 ? 'red' : 'success'} style={{ fontSize: '10px' }}>
-                      {ram > 80 ? 'OVERFLOW' : 'OPTIMAL'}
-                    </Tag>
+
+              <Col xs={24} md={12}>
+                <div style={{ background: '#1a2234', padding: 16, borderRadius: 8, border: '1px solid rgba(255, 255, 255, 0.06)' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
+                    <span style={{ color: '#94a3b8', fontSize: 13 }}>Network Traffic</span>
+                    <Tag color="purple">{networkFormatted}</Tag>
                   </div>
-                  <Progress 
-                    percent={ram} 
-                    status="active" 
-                    strokeColor={{ '0%': '#b37feb', '100%': '#9254de' }} 
-                    showInfo={false} 
-                    strokeWidth={6}
-                  />
-                </div>
-                <div style={{ marginTop: 12 }}>
-                  <span style={{ color: '#555', fontSize: '11px', display: 'block', marginBottom: '8px' }}>Real-time sparkline (3s polling)</span>
-                  <MiniLineChart data={ramHistory} color="#9254de" />
+                  <div style={{ marginTop: 12, color: '#cbd5e1', fontSize: 13 }}>
+                    <div style={{ marginBottom: 6 }}>Network In / Out telemetry active</div>
+                    <div style={{ color: '#64748b', fontStyle: 'italic', marginTop: 16 }}>
+                      Memory monitoring: N/A (CloudWatch Agent required)
+                    </div>
+                  </div>
                 </div>
               </Col>
             </Row>
           </Card>
-        </Col>
 
-        {/* Quick Actions Panel */}
-        <Col xs={24} lg={8}>
-          <Card title={<span style={{ color: '#fff', fontSize: '16px', fontWeight: 600 }}>Quick Actions Operations</span>} bordered={false}>
-            <Space direction="vertical" style={{ width: '100%' }} size="middle">
-              <Button 
-                type="primary" 
-                block 
-                icon={<PlayCircleOutlined />} 
-                onClick={handleTriggerEvent}
-                disabled={isExecutingJob}
-                style={{ height: '40px', borderRadius: '6px', fontWeight: 600 }}
-              >
-                Run Diagnostic Job
-              </Button>
-              
-              <Button 
-                block 
-                icon={<CloudUploadOutlined />} 
-                onClick={handleS3UploadEvent}
-                disabled={isExecutingJob}
-                style={{ height: '40px', borderRadius: '6px', backgroundColor: 'rgba(255, 87, 34, 0.05)', color: '#ff7a45', border: '1px solid #ff7a45' }}
-              >
-                Upload Log File
-              </Button>
-
-              <Row gutter={12}>
-                <Col span={12}>
-                  <Button 
-                    block 
-                    icon={<ReloadOutlined />} 
-                    onClick={handleRestartWorker}
-                    disabled={isExecutingJob}
-                    style={{ height: '36px', fontSize: '12px' }}
-                  >
-                    Restart Worker
-                  </Button>
-                </Col>
-                <Col span={12}>
-                  <Button 
-                    block 
-                    icon={<SyncOutlined />} 
-                    onClick={handleFlushRedisQueue}
-                    disabled={isExecutingJob}
-                    style={{ height: '36px', fontSize: '12px' }}
-                  >
-                    Sync Event Sources
-                  </Button>
-                </Col>
-              </Row>
-
-              <Button 
-                type="link" 
-                block 
-                icon={<CodeOutlined />} 
-                onClick={() => history.push('/logs')}
-                style={{ textAlign: 'center', color: '#ff7a45', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-              >
-                Open Console Logs <RightOutlined style={{ fontSize: '10px', marginLeft: 4 }} />
-              </Button>
-            </Space>
-          </Card>
-        </Col>
-      </Row>
-
-      {/* 3. Mini Terminal & Service Health Status */}
-      <Row gutter={[16, 16]} style={{ marginTop: '20px' }}>
-        {/* Operations Terminal Console */}
-        <Col xs={24} lg={16}>
-          <Card 
+          {/* Active Incidents & Rule Engine Dispatches */}
+          <Card
             title={
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <CodeOutlined style={{ color: '#e26f54' }} />
-                <span style={{ color: '#fff', fontSize: '16px', fontWeight: 600 }}>CloudOps Log Console (cloudops-worker-01)</span>
-              </div>
-            } 
-            bordered={false}
+              <Space>
+                <BugOutlined style={{ color: '#ff4d4f' }} />
+                <span style={{ color: '#f1f5f9', fontWeight: 600 }}>Active Incidents (Rule Engine Dispatches)</span>
+                <Badge count={incidents.length} overflowCount={99} style={{ backgroundColor: '#ff4d4f' }} />
+              </Space>
+            }
+            style={{ borderRadius: 8, marginBottom: 20, background: '#121824', border: '1px solid rgba(255, 255, 255, 0.08)', boxShadow: '0 4px 12px rgba(0, 0, 0, 0.25)' }}
           >
-            <div className="terminal-container" style={{ minHeight: '240px' }}>
-              {terminalLogs.map((log, idx) => {
-                let color = '#d9d9d9';
-                if (log.type === 'cmd') color = '#e26f54';
-                else if (log.type === 'success') color = '#52c41a';
-                else if (log.type === 'warn') color = '#faad14';
-                else if (log.type === 'cyan') color = '#13c2c2';
-
-                return (
-                  <div key={idx} style={{ color, marginBottom: '6px', fontSize: '12px', fontFamily: "'Courier New', monospace", lineHeight: '1.5' }}>
-                    {log.text}
-                  </div>
-                );
-              })}
-              <div style={{ display: 'flex', alignItems: 'center', color: '#52c41a', fontSize: '12px', fontFamily: "'Courier New', monospace" }}>
-                <span>[root@cloudops-worker] # </span>
-                <span className="terminal-cursor" />
-              </div>
-              <div ref={terminalEndRef} />
-            </div>
-          </Card>
-        </Col>
-
-        {/* Datadog style Health Status */}
-        <Col xs={24} lg={8}>
-          <Card 
-            title={
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span style={{ color: '#fff', fontSize: '16px', fontWeight: 600 }}>CloudOps Service Monitors</span>
-                <Tag color="success" style={{ border: 'none', fontSize: '10px' }}>ALL OK</Tag>
-              </div>
-            } 
-            bordered={false}
-          >
-            <List
-              dataSource={monitors}
-              renderItem={(item) => (
-                <div 
-                  key={item.key} 
-                  style={{ 
-                    padding: '8px 0', 
-                    borderBottom: '1px solid #222',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: '4px'
-                  }}
-                >
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <Space size="small">
-                      <span style={{ display: 'inline-block', width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#52c41a', boxShadow: '0 0 8px #52c41a' }} />
-                      <span style={{ color: '#d9d9d9', fontWeight: 600, fontSize: '12px' }}>{item.name}</span>
-                    </Space>
-                    <span style={{ color: '#8c8c8c', fontSize: '10px' }}>{item.value}</span>
-                  </div>
-
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '2px' }}>
-                    {/* Datadog Uptime Check Bars */}
-                    <div style={{ display: 'flex', gap: '2px' }}>
-                      {[...Array(18)].map((_, idx) => {
-                        // Randomly insert a warning check bar in some nodes to look extremely realistic
-                        const isWarningBar = item.status === 'warning' || (item.key === 'rds' && idx === 11);
-                        return (
-                          <div 
-                            key={idx} 
-                            style={{ 
-                              width: '5px', 
-                              height: '12px', 
-                              borderRadius: '1px', 
-                              backgroundColor: isWarningBar ? '#faad14' : '#52c41a',
-                              opacity: 0.85
-                            }} 
-                          />
-                        );
-                      })}
-                    </div>
-                    <span style={{ color: '#52c41a', fontSize: '10px', fontWeight: 500 }}>{item.uptime} uptime</span>
-                  </div>
-                </div>
-              )}
-            />
-          </Card>
-        </Col>
-      </Row>
-
-      {/* 4. Active Alerts & Activity Feed */}
-      <Row gutter={[16, 16]} style={{ marginTop: '20px' }}>
-        {/* Severity Alerts Center */}
-        <Col xs={24} lg={16}>
-          <Card 
-            title={
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span style={{ color: '#fff', fontSize: '16px', fontWeight: 600 }}>Active Alerts Center</span>
-                <Badge count={alerts.length} style={{ backgroundColor: '#ff4d4f' }} />
-              </div>
-            } 
-            bordered={false}
-          >
-            {alerts.length === 0 ? (
-              <div style={{ padding: '24px 0', textAlign: 'center', color: '#555' }}>
-                <CheckCircleOutlined style={{ fontSize: '32px', color: '#52c41a', marginBottom: '8px' }} />
-                <div>All nodes reporting healthy status.</div>
+            {incidents.length === 0 ? (
+              <div style={{ padding: '24px', textAlign: 'center', color: '#64748b' }}>
+                <CheckCircleOutlined style={{ fontSize: 32, color: '#52c41a', marginBottom: 8 }} />
+                <div>No active incidents detected. All system health rules passing.</div>
               </div>
             ) : (
               <List
-                dataSource={alerts}
-                renderItem={(item) => (
-                  <List.Item 
-                    style={{ 
-                      borderBottom: '1px solid #222',
-                      padding: '12px 0',
-                      alignItems: 'flex-start'
-                    }}
-                    actions={[
-                      <Button 
-                        type="text" 
-                        size="small" 
-                        onClick={() => dismissAlert(item.id)}
-                        style={{ color: '#ff7a45', fontSize: '11px', padding: 0 }}
-                      >
-                        Acknowledge
-                      </Button>
-                    ]}
+                dataSource={incidents}
+                renderItem={item => (
+                  <List.Item
+                    style={{ background: '#1a2234', marginBottom: 8, padding: '12px 16px', borderRadius: 6, borderLeft: item.severity === 'CRITICAL' ? '4px solid #ff4d4f' : '4px solid #faad14' }}
                   >
                     <List.Item.Meta
-                      avatar={getAlertIcon(item.level)}
+                      avatar={getAlertIcon(item.severity?.toLowerCase())}
                       title={
-                        <Space size="small">
-                          <span style={{ color: '#fff', fontWeight: 600, fontSize: '12px' }}>{item.service}</span>
-                          <Tag 
-                            color={item.level === 'critical' ? 'red' : item.level === 'warning' ? 'gold' : 'blue'}
-                            style={{ fontSize: '9px', lineHeight: '14px', height: '14px', padding: '0 4px', border: 'none' }}
-                          >
-                            {item.level.toUpperCase()}
-                          </Tag>
+                        <Space wrap>
+                          <span style={{ color: '#fff', fontWeight: 600 }}>#{item.incidentNumber || item.id.slice(0, 8)}</span>
+                          <Tag color={item.severity === 'CRITICAL' ? 'red' : 'orange'}>{item.severity}</Tag>
+                          <span style={{ color: '#e2e8f0' }}>{item.title}</span>
                         </Space>
                       }
                       description={
-                        <div style={{ marginTop: '2px' }}>
-                          <div style={{ color: '#d9d9d9', fontSize: '11px', lineHeight: 1.3 }}>{item.msg}</div>
-                          <div style={{ color: '#555', fontSize: '10px', marginTop: '4px' }}>{item.time}</div>
+                        <div style={{ color: '#94a3b8', fontSize: 12 }}>
+                          {item.description} · <span style={{ color: '#38bdf8' }}>Created by {item.createdByType === 'SYSTEM' ? 'CloudOps Rule Engine' : (item.creator?.name || 'User')}</span>
                         </div>
                       }
                     />
+                    <div>
+                      <Tag color="blue">{item.status}</Tag>
+                    </div>
                   </List.Item>
                 )}
               />
@@ -859,46 +594,96 @@ const Dashboard: React.FC = () => {
           </Card>
         </Col>
 
-        {/* System Activity Feed */}
+        {/* Right Column: Quick Operations & Terminal Logs */}
         <Col xs={24} lg={8}>
-          <Card title={<span style={{ color: '#fff', fontSize: '16px', fontWeight: 600 }}>Operations Activity Feed</span>} bordered={false}>
-            <List
-              dataSource={activities}
-              renderItem={(item) => {
-                let dotColor = '#52c41a';
-                if (item.status === 'warning') dotColor = '#faad14';
-                else if (item.status === 'info') dotColor = '#1890ff';
-                else if (item.status === 'error') dotColor = '#ff4d4f';
+          {/* Quick Action Operations */}
+          <Card
+            title={
+              <Space>
+                <PlayCircleOutlined style={{ color: '#38bdf8' }} />
+                <span style={{ color: '#f1f5f9', fontWeight: 600 }}>Quick Operations</span>
+              </Space>
+            }
+            style={{ borderRadius: 8, marginBottom: 20, background: '#121824', border: '1px solid rgba(255, 255, 255, 0.08)', boxShadow: '0 4px 12px rgba(0, 0, 0, 0.25)' }}
+          >
+            <Space direction="vertical" style={{ width: '100%' }} size="middle">
+              <Button
+                type="primary"
+                icon={<ThunderboltOutlined />}
+                block
+                size="large"
+                loading={isExecutingJob}
+                onClick={handleTriggerEvent}
+                style={{
+                  background: '#ea580c',
+                  borderColor: '#ea580c',
+                  height: 'auto',
+                  padding: '10px 14px',
+                  whiteSpace: 'normal',
+                  textAlign: 'center',
+                  fontWeight: 600,
+                  boxShadow: '0 4px 12px rgba(234, 88, 12, 0.3)',
+                }}
+              >
+                Run Diagnostic Job
+              </Button>
 
-                return (
-                  <div 
-                    key={item.id}
-                    style={{ 
-                      padding: '10px 0',
-                      borderBottom: '1px solid #222',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '12px'
-                    }}
-                  >
-                    <span style={{ color: '#ff7a45', fontFamily: 'monospace', fontSize: '11px', width: '42px', display: 'inline-block' }}>
-                      {item.time}
-                    </span>
-                    <span 
-                      style={{ 
-                        width: '6px', 
-                        height: '6px', 
-                        borderRadius: '50%', 
-                        backgroundColor: dotColor,
-                        display: 'inline-block'
-                      }} 
-                    />
-                    <span style={{ color: '#d9d9d9', fontSize: '12px', flex: 1 }}>
-                      {item.text}
-                    </span>
-                  </div>
-                );
-              }}
+              <Button
+                icon={<CloudUploadOutlined />}
+                block
+                disabled={isExecutingJob}
+                onClick={handleS3UploadEvent}
+                style={{ background: '#1a2234', borderColor: 'rgba(255,255,255,0.12)', color: '#d9d9d9', whiteSpace: 'normal', height: 'auto', padding: '8px 12px' }}
+              >
+                Run AWS Resource Sync
+              </Button>
+
+              <Button
+                icon={<ReloadOutlined />}
+                block
+                disabled={isExecutingJob}
+                onClick={handleRestartWorker}
+                style={{ background: '#1a2234', borderColor: 'rgba(255,255,255,0.12)', color: '#d9d9d9', whiteSpace: 'normal', height: 'auto', padding: '8px 12px' }}
+              >
+                Check Worker Pool Status
+              </Button>
+
+
+              <Button
+                icon={<SyncOutlined />}
+                block
+                disabled={isExecutingJob}
+                onClick={() => loadDashboardData()}
+                style={{ background: '#1a2234', borderColor: 'rgba(255,255,255,0.12)', color: '#d9d9d9', whiteSpace: 'normal', height: 'auto', padding: '8px 12px' }}
+              >
+                Sync All Telemetry & Metrics
+              </Button>
+            </Space>
+          </Card>
+
+          {/* Activity Feed */}
+          <Card
+            title={
+              <Space>
+                <CodeOutlined style={{ color: '#4ade80' }} />
+                <span style={{ color: '#f1f5f9', fontWeight: 600 }}>Recent System Activities</span>
+              </Space>
+            }
+            style={{ borderRadius: 8, background: '#121824', border: '1px solid rgba(255, 255, 255, 0.08)', boxShadow: '0 4px 12px rgba(0, 0, 0, 0.25)' }}
+          >
+            <List
+              size="small"
+              dataSource={activities}
+              renderItem={item => (
+                <List.Item style={{ padding: '8px 0', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+                  <Space style={{ width: '100%', justifyContent: 'space-between' }}>
+                    <Space wrap>
+                      <Tag color={item.status === 'error' ? 'red' : item.status === 'warning' ? 'orange' : 'green'}>{item.time}</Tag>
+                      <span style={{ color: '#cbd5e1', fontSize: 13 }}>{item.text}</span>
+                    </Space>
+                  </Space>
+                </List.Item>
+              )}
             />
           </Card>
         </Col>
