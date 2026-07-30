@@ -568,6 +568,7 @@ model AlertRule {
 
   alerts Alert[]
 
+  @@index([createdBy, cloudAccountId])
   @@map("alert_rules")
 }
 
@@ -630,7 +631,7 @@ model Incident {
   assigneeId           String?          @map("assignee_id") @db.Uuid
   createdBy            String?          @map("created_by") @db.Uuid
   createdByType        String           @default("USER") @map("created_by_type") @db.VarChar(20)
-  dedupKey             String?          @map("dedup_key") @db.VarChar(255)
+  dedupKey             String?          @unique @map("dedup_key") @db.VarChar(255)
   ruleCode             String?          @map("rule_code") @db.VarChar(80)
   occurrenceCount      Int              @default(1) @map("occurrence_count")
   lastObservedAt       DateTime         @default(now()) @map("last_observed_at") @db.Timestamptz
