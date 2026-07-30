@@ -59,6 +59,19 @@ export interface PublicJob {
   createdAt: Date;
   updatedAt: Date;
   enqueueError?: string | null;
+  cloudAccount?: {
+    id: string;
+    name: string;
+    provider: string;
+    providerAccountId: string;
+  } | null;
+  resource?: {
+    id: string;
+    name: string;
+    provider: string;
+    resourceType: string;
+    region: string;
+  } | null;
 }
 
 export interface CreateJobResult {
@@ -75,7 +88,7 @@ export class JobsService {
     private readonly queueService: QueueService,
   ) {}
 
-  toPublic(job: Job, extra?: { enqueueError?: string | null }): PublicJob {
+  toPublic(job: any, extra?: { enqueueError?: string | null }): PublicJob {
     return {
       id: job.id,
       type: job.type,
@@ -97,6 +110,8 @@ export class JobsService {
       createdAt: job.createdAt,
       updatedAt: job.updatedAt,
       enqueueError: extra?.enqueueError ?? null,
+      cloudAccount: job.cloudAccount ?? null,
+      resource: job.resource ?? null,
     };
   }
 
@@ -234,6 +249,14 @@ export class JobsService {
     const [items, total] = await this.prisma.$transaction([
       this.prisma.job.findMany({
         where,
+        include: {
+          cloudAccount: {
+            select: { id: true, name: true, provider: true, providerAccountId: true },
+          },
+          resource: {
+            select: { id: true, name: true, provider: true, resourceType: true, region: true },
+          },
+        },
         orderBy: { createdAt: 'desc' },
         skip,
         take: limit,
@@ -253,7 +276,17 @@ export class JobsService {
   }
 
   async findById(id: string, actor: User): Promise<PublicJob> {
-    const job = await this.prisma.job.findUnique({ where: { id } });
+    const job = await this.prisma.job.findUnique({
+      where: { id },
+      include: {
+        cloudAccount: {
+          select: { id: true, name: true, provider: true, providerAccountId: true },
+        },
+        resource: {
+          select: { id: true, name: true, provider: true, resourceType: true, region: true },
+        },
+      },
+    });
     if (!job) {
       throw new NotFoundException('Job not found');
     }

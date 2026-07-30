@@ -100,6 +100,43 @@ export class QueueService implements OnModuleDestroy {
     }
   }
 
+  /**
+   * Upsert a BullMQ Job Scheduler (repeatable job).
+   * Creates or updates a repeatable job that fires at the given interval.
+   */
+  async upsertScheduler(
+    key: string,
+    name: string,
+    intervalMs: number,
+    data: QueueJobPayload,
+  ): Promise<void> {
+    try {
+      await this.queue.upsertJobScheduler(
+        key,
+        { every: intervalMs },
+        { name, data: { jobId: data.jobId } },
+      );
+      this.logger.debug(`Upserted scheduler key=${key} every=${intervalMs}ms`);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      this.logger.warn(`Failed to upsert scheduler ${key}: ${msg}`);
+      throw err;
+    }
+  }
+
+  /**
+   * Remove a BullMQ Job Scheduler by key.
+   */
+  async removeScheduler(key: string): Promise<void> {
+    try {
+      await this.queue.removeJobScheduler(key);
+      this.logger.debug(`Removed scheduler key=${key}`);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      this.logger.warn(`Failed to remove scheduler ${key}: ${msg}`);
+    }
+  }
+
   async onModuleDestroy() {
     await this.queue.close();
     this.connection.disconnect();

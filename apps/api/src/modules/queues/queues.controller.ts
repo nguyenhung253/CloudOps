@@ -11,6 +11,15 @@ export class QueuesController {
   constructor(private readonly queuesService: QueuesService) {}
 
   /**
+   * GET /api/v1/queues
+   */
+  @Get()
+  @Roles(UserRole.ADMIN, UserRole.OPERATOR, UserRole.VIEWER)
+  async getQueues() {
+    return this.queuesService.getSummary();
+  }
+
+  /**
    * GET /api/v1/queues/summary
    */
   @Get('summary')
