@@ -37,29 +37,23 @@ export class DashboardService {
       UNKNOWN: 0,
     };
 
-    if (ec2Resources.length > 0) {
-      for (const res of ec2Resources) {
-        const latest = res.healthSnapshots[0];
-        const status = latest?.status ?? HealthStatus.HEALTHY;
-        healthCounts[status] = (healthCounts[status] || 0) + 1;
-      }
-    } else {
-      // Default to 1 healthy EC2 instance discovered from live AWS Account
-      healthCounts.HEALTHY = 1;
+    for (const res of ec2Resources) {
+      const latest = res.healthSnapshots[0];
+      // Default to UNKNOWN — never fake HEALTHY for unevaluated resources
+      const status = latest?.status ?? HealthStatus.UNKNOWN;
+      healthCounts[status] = (healthCounts[status] || 0) + 1;
     }
-
-    const ec2Count = ec2Resources.length > 0 ? ec2Resources.length : 1;
 
     return {
       cloudAccountsCount,
       resources: {
         total: totalResourcesCount,
         active: activeResourcesCount,
-        ec2Count,
+        ec2Count: ec2Resources.length,
       },
       healthSummary: {
         ...healthCounts,
-        total: ec2Count,
+        total: ec2Resources.length,
       },
       jobsCount: totalJobsCount,
     };
@@ -92,7 +86,8 @@ export class DashboardService {
 
     const items = ec2Resources.map((res) => {
       const latest = res.healthSnapshots[0] ?? null;
-      const status = latest?.status ?? HealthStatus.HEALTHY;
+      // Default to UNKNOWN — never fake HEALTHY for unevaluated resources
+      const status = latest?.status ?? HealthStatus.UNKNOWN;
       healthCounts[status] = (healthCounts[status] || 0) + 1;
 
       return {
@@ -102,22 +97,17 @@ export class DashboardService {
         region: res.region,
         cloudAccount: res.cloudAccount,
         healthStatus: status,
-        reason: latest?.reason ?? 'All metrics and status checks healthy',
-        cpuUtilization: latest?.cpuUtilization ?? 24.6,
-        statusCheckFailed: latest?.statusCheckFailed ?? 0,
-        evaluatedAt: latest?.evaluatedAt ?? res.updatedAt,
+        reason: latest?.reason ?? 'No metric or health evaluation recorded yet',
+        cpuUtilization: latest?.cpuUtilization ?? null,
+        statusCheckFailed: latest?.statusCheckFailed ?? null,
+        evaluatedAt: latest?.evaluatedAt ?? null,
       };
     });
-
-    const totalCount = ec2Resources.length > 0 ? ec2Resources.length : 1;
-    if (ec2Resources.length === 0) {
-      healthCounts.HEALTHY = 1;
-    }
 
     return {
       summary: {
         ...healthCounts,
-        total: totalCount,
+        total: ec2Resources.length,
       },
       resources: items,
     };
@@ -187,9 +177,9 @@ export class DashboardService {
       where: { metricName: 'NetworkOut' },
     });
 
-    let cpuPoints: number[] = [45, 48, 42, 50, 52, 47, 49, 44, 48];
-    let netInVal = 18 * 1024 * 1024;
-    let netOutVal = 4 * 1024 * 1024;
+    let cpuPoints: number[] = [];
+    let netInVal: number | null = null;
+    let netOutVal: number | null = null;
 
     if (cpuDef) {
       const recentCpuPoints = await this.prisma.metricPoint.findMany({
@@ -224,22 +214,25 @@ export class DashboardService {
     const currentCpu =
       cpuPoints.length > 0
         ? Number((cpuPoints.reduce((a, b) => a + b, 0) / cpuPoints.length).toFixed(1))
-        : 24.6;
+        : null;
 
-    const netInMb = (netInVal / (1024 * 1024)).toFixed(0);
-    const netOutMb = (netOutVal / (1024 * 1024)).toFixed(0);
+    const netInMb = netInVal !== null ? (netInVal / (1024 * 1024)).toFixed(0) : null;
+    const netOutMb = netOutVal !== null ? (netOutVal / (1024 * 1024)).toFixed(0) : null;
 
     return {
       cpu: {
-        available: true,
+        available: cpuPoints.length > 0,
         current: currentCpu,
         history: cpuPoints,
       },
       network: {
-        available: true,
+        available: netInVal !== null,
         inBytes: netInVal,
         outBytes: netOutVal,
-        formatted: `↓ ${netInMb} MB  ↑ ${netOutMb} MB`,
+        formatted:
+          netInVal !== null
+            ? `↓ ${netInMb} MB  ↑ ${netOutMb} MB`
+            : 'N/A (no metric data collected yet)',
       },
       memory: {
         available: false,

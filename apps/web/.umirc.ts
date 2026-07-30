@@ -39,18 +39,6 @@ export default defineConfig({
       icon: 'CloudOutlined',
     },
     {
-      name: 'Event Sources',
-      path: '/data-sources',
-      component: './DataSources',
-      icon: 'DatabaseOutlined',
-    },
-    {
-      name: 'Cloud Storage Events',
-      path: '/storage',
-      component: './Storage',
-      icon: 'FolderOpenOutlined',
-    },
-    {
       name: 'Jobs & Queues',
       path: '/jobs',
       component: './Table',
@@ -73,13 +61,19 @@ export default defineConfig({
       icon: 'CalendarOutlined',
     },
     {
-      name: 'Workers',
+      name: 'Users',
       path: '/users',
       component: './Users',
       icon: 'UserOutlined',
     },
     {
-      name: 'Incidents',
+      name: 'Workers',
+      path: '/workers',
+      component: './Workers',
+      icon: 'ThunderboltOutlined',
+    },
+    {
+      name: 'Alerts',
       path: '/alerts',
       component: './Alerts',
       icon: 'WarningOutlined',
@@ -91,7 +85,7 @@ export default defineConfig({
       icon: 'CodeOutlined',
     },
     {
-      name: 'Alerts',
+      name: 'Reports',
       path: '/reports',
       component: './Reports',
       icon: 'BarChartOutlined',

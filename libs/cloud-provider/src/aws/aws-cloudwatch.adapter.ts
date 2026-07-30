@@ -164,10 +164,12 @@ export class AwsCloudWatchAdapter {
         unit: 'Bytes',
       });
 
+      // Occasionally inject a status check failure (10% chance) for demo realism
+      const statusCheckFailure = randomFactor < 0.1 ? 1 : 0;
       points.push({
         metricName: 'StatusCheckFailed',
         timestamp: ts,
-        value: 0,
+        value: statusCheckFailure,
         unit: 'Count',
       });
 

@@ -77,7 +77,6 @@ export class MetricCollectionHandler implements JobHandler {
         where: {
           cloudAccountId: targetAccountId,
           resourceType: { in: ['EC2_INSTANCE', 'ec2:instance', 'AWS::EC2::Instance', 'ec2'] },
-
           isActive: true,
         },
         include: { cloudAccount: true },
@@ -87,7 +86,6 @@ export class MetricCollectionHandler implements JobHandler {
       const list = await this.prisma.cloudResource.findMany({
         where: {
           resourceType: { in: ['EC2_INSTANCE', 'ec2:instance', 'AWS::EC2::Instance', 'ec2'] },
-
           isActive: true,
         },
         include: { cloudAccount: true },
@@ -161,7 +159,7 @@ export class MetricCollectionHandler implements JobHandler {
         periodSeconds: 300,
       });
 
-      // Save MetricPoints
+      // Save MetricPoints — only catch duplicate constraint (P2002), re-throw real errors
       for (const point of fetchedPoints) {
         const def = metricDefMap[point.metricName];
         if (!def) continue;
@@ -190,7 +188,16 @@ export class MetricCollectionHandler implements JobHandler {
           });
           totalPointsSaved++;
         } catch (err: unknown) {
-          // Ignore duplicate constraint race errors
+          if (
+            err &&
+            typeof err === 'object' &&
+            'code' in err &&
+            (err as { code: string }).code === 'P2002'
+          ) {
+            // Expected race condition: duplicate unique key from concurrent collection
+            continue;
+          }
+          throw err;
         }
       }
 
@@ -242,31 +249,47 @@ export class MetricCollectionHandler implements JobHandler {
             },
           });
         } catch (err: unknown) {
-          // Ignore race condition
+          if (
+            err &&
+            typeof err === 'object' &&
+            'code' in err &&
+            (err as { code: string }).code === 'P2002'
+          ) {
+            continue;
+          }
+          throw err;
         }
       }
 
       // Evaluate Resource Health with ResourceHealthEvaluator
       const evaluation = this.healthEvaluator.evaluate(fetchedPoints);
 
-      // Save ResourceHealthSnapshot
-      await this.prisma.resourceHealthSnapshot.create({
-        data: {
-          resourceId: resource.id,
-          status: evaluation.overallHealth,
-          reason: evaluation.primaryReason,
-          cpuUtilization: evaluation.cpuValue !== null ? Number(evaluation.cpuValue) : null,
-          statusCheckFailed: evaluation.statusCheckFailedValue !== null ? Number(evaluation.statusCheckFailedValue) : null,
-          metricsSummary: (evaluation.latestMetrics ?? {}) as Prisma.InputJsonValue,
-          evaluatedAt: now,
-        },
-      });
+      // Save ResourceHealthSnapshot in a transaction — all-or-nothing
+      await this.prisma.$transaction(async (tx) => {
+        await tx.resourceHealthSnapshot.create({
+          data: {
+            resourceId: resource.id,
+            status: evaluation.overallHealth,
+            reason: evaluation.primaryReason,
+            cpuUtilization: evaluation.cpuAverage !== null
+              ? Number(evaluation.cpuAverage)
+              : null,
+            statusCheckFailed: evaluation.statusCheckFailedMax !== null
+              ? Number(evaluation.statusCheckFailedMax)
+              : null,
+            metricsSummary: (evaluation.latestMetrics ?? {}) as Prisma.InputJsonValue,
+            evaluatedAt: now,
+          },
+        });
 
-
-      // Update Resource status column for convenience
-      await this.prisma.cloudResource.update({
-        where: { id: resource.id },
-        data: { status: evaluation.overallHealth.toLowerCase() },
+        // Update resource status column for convenience — uses deduced health
+        // CloudResource.status is separate from CloudResource.metadata/name and
+        // is used by dashboard for quick filtering; AWS sync stores actual EC2
+        // state in the metadata column
+        await tx.cloudResource.update({
+          where: { id: resource.id },
+          data: { status: evaluation.overallHealth.toLowerCase() },
+        });
       });
 
       // Auto Incident & Alert Dispatch if UNHEALTHY or DEGRADED

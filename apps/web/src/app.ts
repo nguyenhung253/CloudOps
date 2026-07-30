@@ -1,9 +1,9 @@
 import React from 'react';
 import { history } from '@umijs/max';
 import { Button, Space, Avatar, message, ConfigProvider, theme } from 'antd';
-import { 
-  LogoutOutlined, 
-  UserOutlined, 
+import {
+  LogoutOutlined,
+  UserOutlined,
   PoweroffOutlined,
   CloudServerOutlined,
   DashboardOutlined,
@@ -16,7 +16,8 @@ import {
   BarChartOutlined,
   SettingOutlined,
   CalendarOutlined,
-  CloudOutlined
+  CloudOutlined,
+  ThunderboltOutlined
 } from '@ant-design/icons';
 import type { RunTimeLayoutConfig } from '@umijs/max';
 import HeaderActions from '@/components/HeaderActions';
@@ -41,13 +42,15 @@ const getHeaderInfo = (pathname: string) => {
     case '/monitoring':
       return { title: 'Telemetry & Metrics', sub: 'Real-time active worker processes, Redis queue capacity, and load parameters' };
     case '/alerts':
-      return { title: 'Incidents Console', sub: 'Active incidents, severity levels, and RCA mitigations' };
+      return { title: 'Alerts Console', sub: 'Active alerts, severity levels, and incident management' };
     case '/scheduler':
       return { title: 'Job Schedules', sub: 'Configure recurring sync and collection schedules' };
     case '/reports':
-      return { title: 'Alerts Analytics', sub: 'SLA trends, MTTR analytics, and resolution reports' };
+      return { title: 'Reports & Analytics', sub: 'SLA trends, MTTR analytics, and resolution reports' };
     case '/users':
-      return { title: 'Workers & Access Control', sub: 'Manage operators, workers IAM profiles, and RBAC policies' };
+      return { title: 'Users & Access Control', sub: 'Manage operators, RBAC policies, and account security' };
+    case '/workers':
+      return { title: 'Worker Pool', sub: 'Active BullMQ worker processes, queue concurrency, and heartbeat status' };
     case '/settings':
       return { title: 'System Settings', sub: 'Configure global adapters, SMTP relays, and parameter stores' };
     default:
@@ -83,6 +86,8 @@ const getHeaderIcon = (pathname: string) => {
       return React.createElement(BarChartOutlined, { style: iconStyle });
     case '/users':
       return React.createElement(UserOutlined, { style: iconStyle });
+    case '/workers':
+      return React.createElement(ThunderboltOutlined, { style: iconStyle });
     case '/settings':
       return React.createElement(SettingOutlined, { style: iconStyle });
     default:

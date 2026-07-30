@@ -30,6 +30,14 @@ function severityToIncidentSeverity(severity: string): IncidentSeverity {
   }
 }
 
+/**
+ * Build a deterministic fingerprint for alert deduplication within the cooldown window.
+ */
+function buildFingerprint(ruleId: string, resourceId: string | null): string {
+  const resourceKey = resourceId ?? 'global';
+  return `rule:${ruleId}:res:${resourceKey}`;
+}
+
 @Injectable()
 export class AlertsService {
   constructor(
@@ -90,39 +98,88 @@ export class AlertsService {
     return this.findByIdOrThrow(id);
   }
 
-  async acknowledge(id: string, actor: User, requestId?: string) {
-    const alert = await this.findByIdOrThrow(id);
+  /**
+   * Check whether a new alert should be suppressed due to cooldown.
+   * Called by the rule evaluation engine before creating an alert.
+   *
+   * If within the cooldown window, bumps lastTriggeredAt on the existing
+   * alert instead of creating a duplicate. Returns the suppression status
+   * so the caller can decide to skip the alert creation pipeline.
+   */
+  async checkCooldown(
+    alertRuleId: string,
+    resourceId: string | null,
+    cooldownSeconds: number,
+  ): Promise<{ suppressed: boolean; existingAlertId: string | null }> {
+    const fingerprint = buildFingerprint(alertRuleId, resourceId);
+    const cooldownThreshold = new Date(Date.now() - cooldownSeconds * 1000);
 
-    if (alert.status !== AlertStatus.OPEN) {
-      throw new BadRequestException(
-        `Cannot acknowledge alert in "${alert.status}" status. Only OPEN alerts can be acknowledged.`,
-      );
+    const existing = await this.prisma.alert.findFirst({
+      where: {
+        alertRuleId,
+        fingerprint,
+        status: AlertStatus.OPEN,
+        lastTriggeredAt: { gte: cooldownThreshold },
+      },
+      select: { id: true },
+      orderBy: { lastTriggeredAt: 'desc' },
+    });
+
+    if (existing) {
+      await this.prisma.alert.update({
+        where: { id: existing.id },
+        data: { lastTriggeredAt: new Date() },
+      });
+      return { suppressed: true, existingAlertId: existing.id };
     }
 
+    return { suppressed: false, existingAlertId: null };
+  }
+
+  async acknowledge(id: string, actor: User, requestId?: string) {
+    // Optimistic lock: only update if currently OPEN
     const now = new Date();
-    const [updated] = await this.prisma.$transaction([
-      this.prisma.alert.update({
-        where: { id },
+    const result = await this.prisma.$transaction(async (tx) => {
+      const updated = await tx.alert.updateMany({
+        where: { id, status: AlertStatus.OPEN },
         data: {
           status: AlertStatus.ACKNOWLEDGED,
           acknowledgedAt: now,
           acknowledgedBy: actor.id,
         },
-        include: ALERT_INCLUDES,
-      }),
-      this.prisma.alertEvent.create({
+      });
+
+      if (updated.count === 0) {
+        const current = await tx.alert.findUnique({
+          where: { id },
+          select: { status: true },
+        });
+        if (!current) {
+          throw new NotFoundException(`Alert ${id} not found`);
+        }
+        throw new BadRequestException(
+          `Cannot acknowledge alert in "${current.status}" status. Only OPEN alerts can be acknowledged.`,
+        );
+      }
+
+      await tx.alertEvent.create({
         data: {
           alertId: id,
           eventType: 'ACKNOWLEDGED',
           actorUserId: actor.id,
           payload: {
-            previousStatus: alert.status,
+            previousStatus: AlertStatus.OPEN,
             newStatus: AlertStatus.ACKNOWLEDGED,
             timestamp: now.toISOString(),
           },
         },
-      }),
-    ]);
+      });
+
+      return tx.alert.findUnique({
+        where: { id },
+        include: ALERT_INCLUDES,
+      });
+    });
 
     await this.auditLogsService.create({
       actorUserId: actor.id,
@@ -131,46 +188,61 @@ export class AlertsService {
       targetId: id,
       requestId,
       metadata: {
-        alertTitle: alert.title,
-        previousStatus: alert.status,
+        previousStatus: AlertStatus.OPEN,
         newStatus: AlertStatus.ACKNOWLEDGED,
       },
     });
 
-    return updated;
+    return result;
   }
 
   async resolve(id: string, actor: User, requestId?: string) {
-    const alert = await this.findByIdOrThrow(id);
-
-    if (alert.status === AlertStatus.RESOLVED) {
-      throw new BadRequestException('Alert is already resolved');
-    }
-
+    // Optimistic lock: only update if currently ACKNOWLEDGED
     const now = new Date();
-    const [updated] = await this.prisma.$transaction([
-      this.prisma.alert.update({
-        where: { id },
+    const result = await this.prisma.$transaction(async (tx) => {
+      const updated = await tx.alert.updateMany({
+        where: { id, status: AlertStatus.ACKNOWLEDGED },
         data: {
           status: AlertStatus.RESOLVED,
           resolvedAt: now,
           resolvedBy: actor.id,
         },
-        include: ALERT_INCLUDES,
-      }),
-      this.prisma.alertEvent.create({
+      });
+
+      if (updated.count === 0) {
+        const current = await tx.alert.findUnique({
+          where: { id },
+          select: { status: true },
+        });
+        if (!current) {
+          throw new NotFoundException(`Alert ${id} not found`);
+        }
+        if (current.status === AlertStatus.RESOLVED) {
+          throw new BadRequestException('Alert is already resolved');
+        }
+        throw new BadRequestException(
+          `Cannot resolve alert in "${current.status}" status. Alert must be ACKNOWLEDGED before resolving.`,
+        );
+      }
+
+      await tx.alertEvent.create({
         data: {
           alertId: id,
           eventType: 'RESOLVED',
           actorUserId: actor.id,
           payload: {
-            previousStatus: alert.status,
+            previousStatus: AlertStatus.ACKNOWLEDGED,
             newStatus: AlertStatus.RESOLVED,
             timestamp: now.toISOString(),
           },
         },
-      }),
-    ]);
+      });
+
+      return tx.alert.findUnique({
+        where: { id },
+        include: ALERT_INCLUDES,
+      });
+    });
 
     await this.auditLogsService.create({
       actorUserId: actor.id,
@@ -179,13 +251,12 @@ export class AlertsService {
       targetId: id,
       requestId,
       metadata: {
-        alertTitle: alert.title,
-        previousStatus: alert.status,
+        previousStatus: AlertStatus.ACKNOWLEDGED,
         newStatus: AlertStatus.RESOLVED,
       },
     });
 
-    return updated;
+    return result;
   }
 
   async createIncidentFromAlert(
@@ -194,34 +265,37 @@ export class AlertsService {
     actor: User,
     requestId?: string,
   ) {
-    const alert = await this.findByIdOrThrow(alertId);
-
-    // Check if alert already linked to an incident
-    const existingLink = await this.prisma.incidentAlert.findFirst({
-      where: { alertId },
-    });
-    if (existingLink) {
-      throw new BadRequestException(
-        `Alert is already linked to incident ${existingLink.incidentId}`,
-      );
-    }
-
     const now = new Date();
     const dedupKey = `alert:${alertId}`;
 
-    // Check if there's already an incident for this dedup key (idempotency)
-    const existingIncident = await this.prisma.incident.findFirst({
-      where: { dedupKey, status: { not: IncidentStatus.CLOSED } },
-    });
-    if (existingIncident) {
-      throw new BadRequestException(
-        `An active incident (${existingIncident.id}) already exists for this alert`,
-      );
-    }
-
-    const incidentSeverity = severityToIncidentSeverity(alert.severity);
-
+    // All pre-checks AND mutations inside a single transaction — closes the TOCTOU window.
+    // dedupKey has a DB-level UNIQUE constraint as safety net.
     const result = await this.prisma.$transaction(async (tx) => {
+      const alert = await tx.alert.findUnique({ where: { id: alertId } });
+      if (!alert) {
+        throw new NotFoundException(`Alert ${alertId} not found`);
+      }
+
+      const existingLink = await tx.incidentAlert.findFirst({
+        where: { alertId },
+      });
+      if (existingLink) {
+        throw new BadRequestException(
+          `Alert is already linked to incident ${existingLink.incidentId}`,
+        );
+      }
+
+      const existingIncident = await tx.incident.findUnique({
+        where: { dedupKey },
+      });
+      if (existingIncident) {
+        throw new BadRequestException(
+          `An incident (${existingIncident.id}) already exists for this alert`,
+        );
+      }
+
+      const incidentSeverity = severityToIncidentSeverity(alert.severity);
+
       const incident = await tx.incident.create({
         data: {
           title: dto.title.trim(),
@@ -243,7 +317,6 @@ export class AlertsService {
         },
       });
 
-      // Link alert to incident
       await tx.incidentAlert.create({
         data: {
           incidentId: incident.id,
@@ -253,7 +326,6 @@ export class AlertsService {
         },
       });
 
-      // Auto-add timeline: incident created
       await tx.incidentTimeline.create({
         data: {
           incidentId: incident.id,
@@ -269,7 +341,6 @@ export class AlertsService {
         },
       });
 
-      // Auto-add metric evidence
       if (alert.resourceId) {
         await tx.incidentEvidence.create({
           data: {
@@ -299,10 +370,9 @@ export class AlertsService {
       targetId: result.id,
       requestId,
       metadata: {
-        alertId: alert.id,
-        alertTitle: alert.title,
+        alertId,
         incidentTitle: dto.title,
-        severity: incidentSeverity,
+        severity: result.severity,
       },
     });
 

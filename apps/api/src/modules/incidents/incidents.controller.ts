@@ -19,6 +19,8 @@ import type { User } from '@prisma/client';
 import type { Request } from 'express';
 import { IncidentsService } from './incidents.service';
 import { CreateIncidentDto } from './dto/create-incident.dto';
+import { AddRootCauseDto } from './dto/add-root-cause.dto';
+import { AddResolutionNoteDto } from './dto/add-resolution-note.dto';
 import { UpdateIncidentStatusDto } from './dto/update-incident-status.dto';
 import { AddTimelineDto } from './dto/add-timeline.dto';
 import { AddEvidenceDto } from './dto/add-evidence.dto';
@@ -108,11 +110,11 @@ export class IncidentsController {
   @HttpCode(HttpStatus.OK)
   async addRootCause(
     @Param('id', ParseUUIDPipe) id: string,
-    @Body() body: { rootCause: string },
+    @Body() dto: AddRootCauseDto,
     @CurrentUser() user: User,
     @Req() req: Request,
   ) {
-    return this.incidentsService.addRootCause(id, body, user, this.getRequestId(req));
+    return this.incidentsService.addRootCause(id, dto.rootCause, user, this.getRequestId(req));
   }
 
   @Post(':id/resolution')
@@ -120,10 +122,10 @@ export class IncidentsController {
   @HttpCode(HttpStatus.OK)
   async addResolutionNote(
     @Param('id', ParseUUIDPipe) id: string,
-    @Body() body: { resolutionNote: string },
+    @Body() dto: AddResolutionNoteDto,
     @CurrentUser() user: User,
     @Req() req: Request,
   ) {
-    return this.incidentsService.addResolutionNote(id, body, user, this.getRequestId(req));
+    return this.incidentsService.addResolutionNote(id, dto.resolutionNote, user, this.getRequestId(req));
   }
 }
