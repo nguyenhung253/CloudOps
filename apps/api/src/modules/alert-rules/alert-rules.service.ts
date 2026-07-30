@@ -1,10 +1,12 @@
 import {
+  BadRequestException,
   ConflictException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from '@app/database';
-import { AlertRule, AlertSeverity, Prisma, User } from '@prisma/client';
+import { AlertRule, AlertSeverity, Prisma, User, UserRole } from '@prisma/client';
 import { CreateAlertRuleDto } from './dto/create-alert-rule.dto';
 import { UpdateAlertRuleDto } from './dto/update-alert-rule.dto';
 import { ListAlertRulesDto } from './dto/list-alert-rules.dto';
@@ -24,6 +26,23 @@ export class AlertRulesService {
     private readonly auditLogsService: AuditLogsService,
   ) {}
 
+  /**
+   * Non-admin users can only manage alert rules on cloud accounts they created.
+   */
+  private async assertCloudAccountAccess(cloudAccountId: string, actor: User): Promise<void> {
+    if (actor.role === UserRole.ADMIN) return;
+
+    const account = await this.prisma.cloudAccount.findFirst({
+      where: { id: cloudAccountId, createdBy: actor.id, deletedAt: null },
+      select: { id: true },
+    });
+    if (!account) {
+      throw new ForbiddenException(
+        'You do not have access to this cloud account',
+      );
+    }
+  }
+
   async create(dto: CreateAlertRuleDto, actor: User, requestId?: string) {
     const existing = await this.prisma.alertRule.findFirst({
       where: {
@@ -37,6 +56,21 @@ export class AlertRulesService {
       throw new ConflictException(
         `Alert rule "${dto.name}" already exists for this cloud account`,
       );
+    }
+
+    await this.assertCloudAccountAccess(dto.cloudAccountId, actor);
+
+    // Validate resourceId belongs to the specified cloud account
+    if (dto.resourceId) {
+      const resource = await this.prisma.cloudResource.findFirst({
+        where: { id: dto.resourceId, cloudAccountId: dto.cloudAccountId, isActive: true },
+        select: { id: true },
+      });
+      if (!resource) {
+        throw new BadRequestException(
+          `Resource not found or does not belong to the specified cloud account`,
+        );
+      }
     }
 
     const rule = await this.prisma.alertRule.create({
@@ -145,6 +179,13 @@ export class AlertRulesService {
 
   async update(id: string, dto: UpdateAlertRuleDto, actor: User, requestId?: string) {
     const existing = await this.findByIdOrThrow(id);
+
+    // Verify access to the current cloud account
+    await this.assertCloudAccountAccess(existing.cloudAccountId, actor);
+    // If changing cloud account, verify access to the new one too
+    if (dto.cloudAccountId !== undefined) {
+      await this.assertCloudAccountAccess(dto.cloudAccountId, actor);
+    }
 
     const data: Prisma.AlertRuleUncheckedUpdateInput = {};
 

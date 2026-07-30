@@ -156,33 +156,37 @@ export class IncidentsService {
     const now = new Date();
     const dedupKey = `manual:${actor.id}:${Date.now()}`;
 
-    const incident = await this.prisma.incident.create({
-      data: {
-        title: dto.title.trim(),
-        description: dto.description.trim(),
-        status: IncidentStatus.OPEN,
-        severity: dto.severity,
-        primaryResourceId: dto.primaryResourceId ?? null,
-        assigneeId: dto.assigneeId ?? null,
-        createdBy: actor.id,
-        createdByType: 'USER',
-        dedupKey,
-        openedAt: now,
-        lastObservedAt: now,
-        occurrenceCount: 1,
-      },
-      include: INCIDENT_INCLUDES,
-    });
+    const incident = await this.prisma.$transaction(async (tx) => {
+      const created = await tx.incident.create({
+        data: {
+          title: dto.title.trim(),
+          description: dto.description.trim(),
+          status: IncidentStatus.OPEN,
+          severity: dto.severity,
+          primaryResourceId: dto.primaryResourceId ?? null,
+          assigneeId: dto.assigneeId ?? null,
+          createdBy: actor.id,
+          createdByType: 'USER',
+          dedupKey,
+          openedAt: now,
+          lastObservedAt: now,
+          occurrenceCount: 1,
+        },
+        include: INCIDENT_INCLUDES,
+      });
 
-    // Auto-add timeline
-    await this.prisma.incidentTimeline.create({
-      data: {
-        incidentId: incident.id,
-        eventType: 'INCIDENT_CREATED',
-        actorUserId: actor.id,
-        content: `Incident created: ${dto.title}\n\n${dto.description}`,
-        metadata: { severity: dto.severity, primaryResourceId: dto.primaryResourceId },
-      },
+      // Auto-add timeline — same transaction so we don't leave orphan incidents
+      await tx.incidentTimeline.create({
+        data: {
+          incidentId: created.id,
+          eventType: 'INCIDENT_CREATED',
+          actorUserId: actor.id,
+          content: `Incident created: ${dto.title}\n\n${dto.description}`,
+          metadata: { severity: dto.severity, primaryResourceId: dto.primaryResourceId },
+        },
+      });
+
+      return created;
     });
 
     await this.auditLogsService.create({
@@ -346,7 +350,7 @@ export class IncidentsService {
 
   async addRootCause(
     id: string,
-    body: { rootCause: string },
+    rootCause: string,
     actor: User,
     requestId?: string,
   ) {
@@ -356,15 +360,15 @@ export class IncidentsService {
     const [updated] = await this.prisma.$transaction([
       this.prisma.incident.update({
         where: { id },
-        data: { rootCause: body.rootCause },
+        data: { rootCause },
       }),
       this.prisma.incidentTimeline.create({
         data: {
           incidentId: id,
           eventType: 'ROOT_CAUSE_ADDED',
           actorUserId: actor.id,
-          content: `Root cause identified: ${body.rootCause}`,
-          metadata: { rootCause: body.rootCause },
+          content: `Root cause identified: ${rootCause}`,
+          metadata: { rootCause },
         },
       }),
     ]);
@@ -383,7 +387,7 @@ export class IncidentsService {
 
   async addResolutionNote(
     id: string,
-    body: { resolutionNote: string },
+    resolutionNote: string,
     actor: User,
     requestId?: string,
   ) {
@@ -393,15 +397,15 @@ export class IncidentsService {
     const [updated] = await this.prisma.$transaction([
       this.prisma.incident.update({
         where: { id },
-        data: { resolutionNote: body.resolutionNote },
+        data: { resolutionNote },
       }),
       this.prisma.incidentTimeline.create({
         data: {
           incidentId: id,
           eventType: 'RESOLUTION_NOTED',
           actorUserId: actor.id,
-          content: `Resolution note: ${body.resolutionNote}`,
-          metadata: { resolutionNote: body.resolutionNote },
+          content: `Resolution note: ${resolutionNote}`,
+          metadata: { resolutionNote },
         },
       }),
     ]);
