@@ -51,13 +51,23 @@ export default defineConfig({
       icon: 'FolderOpenOutlined',
     },
     {
-      name: 'Jobs',
-      path: '/pipelines',
-      component: './Pipelines',
+      name: 'Jobs & Queues',
+      path: '/jobs',
+      component: './Table',
       icon: 'SyncOutlined',
     },
     {
-      name: 'Queues',
+      path: '/pipelines',
+      component: './Pipelines',
+      hideInMenu: true,
+    },
+    {
+      path: '/table',
+      component: './Table',
+      hideInMenu: true,
+    },
+    {
+      name: 'Schedules',
       path: '/scheduler',
       component: './Scheduler',
       icon: 'CalendarOutlined',

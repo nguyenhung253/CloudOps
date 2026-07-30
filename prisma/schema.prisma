@@ -50,6 +50,13 @@ enum JobType {
   @@map("job_type")
 }
 
+enum ScheduleJobType {
+  RESOURCE_SYNC
+  METRIC_COLLECTION
+
+  @@map("schedule_job_type")
+}
+
 enum JobStatus {
   PENDING
   QUEUED
@@ -182,6 +189,7 @@ model User {
   timelineEvents        IncidentTimeline[]
   evidence              IncidentEvidence[]
   resourceSyncSnapshots ResourceSyncSnapshot[]
+  jobSchedules          JobSchedule[]
 
   @@index([status, role])
   @@map("users")
@@ -228,6 +236,7 @@ model CloudAccount {
   jobs             Job[]
   logQueries       LogQuery[]
   alertRules       AlertRule[]
+  jobSchedules     JobSchedule[]
 
   @@unique([provider, providerAccountId])
   @@map("cloud_accounts")
@@ -770,3 +779,31 @@ model ResourceHealthSnapshot {
   @@map("resource_health_snapshots")
 }
 
+model JobSchedule {
+  id             String          @id @default(uuid()) @db.Uuid
+  jobType        ScheduleJobType @map("job_type")
+  cloudAccountId String          @map("cloud_account_id") @db.Uuid
+  intervalMs     Int             @map("interval_ms")
+  enabled        Boolean         @default(true)
+  schedulerKey   String          @unique @map("scheduler_key") @db.VarChar(255)
+  lastRunAt      DateTime?       @map("last_run_at") @db.Timestamptz
+  nextRunAt      DateTime?       @map("next_run_at") @db.Timestamptz
+  createdBy      String          @map("created_by") @db.Uuid
+  createdAt      DateTime        @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt      DateTime        @updatedAt @map("updated_at") @db.Timestamptz
+
+  cloudAccount CloudAccount @relation(fields: [cloudAccountId], references: [id], onDelete: Cascade)
+  creator      User         @relation(fields: [createdBy], references: [id], onDelete: Restrict)
+
+  @@unique([cloudAccountId, jobType])
+  @@map("job_schedules")
+}
+
+model SystemSetting {
+  key       String   @id @db.VarChar(120)
+  value     Json
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  @@map("system_settings")
+}

@@ -29,7 +29,9 @@ const getHeaderInfo = (pathname: string) => {
     case '/cloud-accounts':
       return { title: 'Cloud Accounts', sub: 'Manage cloud provider accounts, IAM roles, and cross-account access permissions' };
     case '/pipelines':
-      return { title: 'Event Workflows', sub: 'Configure rule-based diagnostic event workflows' };
+    case '/jobs':
+    case '/table':
+      return { title: 'Jobs & Queues', sub: 'Manage background jobs and queue metrics' };
     case '/data-sources':
       return { title: 'Event Sources', sub: 'Configure event receivers, validate signatures, and dispatch queue events' };
     case '/storage':
@@ -41,7 +43,7 @@ const getHeaderInfo = (pathname: string) => {
     case '/alerts':
       return { title: 'Incidents Console', sub: 'Active incidents, severity levels, and RCA mitigations' };
     case '/scheduler':
-      return { title: 'Queues & Job Scheduler', sub: 'Heartbeat checks, log rotations, and diagnostic job routines' };
+      return { title: 'Job Schedules', sub: 'Configure recurring sync and collection schedules' };
     case '/reports':
       return { title: 'Alerts Analytics', sub: 'SLA trends, MTTR analytics, and resolution reports' };
     case '/users':
@@ -62,6 +64,8 @@ const getHeaderIcon = (pathname: string) => {
     case '/cloud-accounts':
       return React.createElement(CloudOutlined, { style: iconStyle });
     case '/pipelines':
+    case '/jobs':
+    case '/table':
       return React.createElement(SyncOutlined, { style: iconStyle });
     case '/data-sources':
       return React.createElement(DatabaseOutlined, { style: iconStyle });
@@ -365,6 +369,34 @@ export const request = {
       };
     },
   ],
+  responseInterceptors: [
+    [
+      (response: any) => response,
+      (error: any) => {
+        if (error?.response?.status === 401) {
+          localStorage.removeItem('dataflow_token');
+          localStorage.removeItem('dataflow_user_role');
+          localStorage.removeItem('dataflow_username');
+          if (location.pathname !== '/login') {
+            location.href = '/login';
+          }
+        }
+        return Promise.reject(error);
+      },
+    ],
+  ],
+  errorConfig: {
+    errorHandler: (error: any) => {
+      if (error?.response?.status === 401) {
+        localStorage.removeItem('dataflow_token');
+        localStorage.removeItem('dataflow_user_role');
+        localStorage.removeItem('dataflow_username');
+        if (location.pathname !== '/login') {
+          location.href = '/login';
+        }
+      }
+    },
+  },
 };
 
 // Wrap with Ant Design Dark Theme ConfigProvider (muted coral theme)

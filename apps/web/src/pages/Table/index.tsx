@@ -1,270 +1,1166 @@
-import services from '@/services/demo';
-import {
-  ActionType,
-  FooterToolbar,
-  PageContainer,
-  ProDescriptions,
-  ProDescriptionsItemProps,
-  ProTable,
-} from '@ant-design/pro-components';
-import { Button, Divider, Drawer, message } from 'antd';
-import React, { useRef, useState } from 'react';
-import CreateForm from './components/CreateForm';
-import UpdateForm, { FormValueType } from './components/UpdateForm';
+import React, { useState, useEffect, useRef } from 'react';
+import { 
+  Table, Tag, Space, Button, Modal, Tabs, Timeline, 
+  message, Tooltip, Popconfirm, Select, Row, Col, Typography, Card, Form, Input, InputNumber, Statistic, Progress, Badge, Divider
+} from 'antd';
+import { 
+  SyncOutlined, StopOutlined, ReloadOutlined, 
+  EyeOutlined, HistoryOutlined, FieldTimeOutlined,
+  CheckCircleOutlined, CloseCircleOutlined, ExclamationCircleOutlined,
+  InfoCircleOutlined, DatabaseOutlined, ClusterOutlined, UserOutlined,
+  PlusOutlined, ThunderboltOutlined, ClockCircleOutlined, HddOutlined, PlayCircleOutlined,
+  CopyOutlined, WarningOutlined
+} from '@ant-design/icons';
+import { PageContainer } from '@ant-design/pro-components';
+import { request } from '@umijs/max';
+import dayjs from 'dayjs';
+import relativeTime from 'dayjs/plugin/relativeTime';
+import 'dayjs/locale/en';
 
-const { addUser, queryUserList, deleteUser, modifyUser } =
-  services.UserController;
+dayjs.extend(relativeTime);
+dayjs.locale('en');
 
-/**
- * 添加节点
- * @param fields
- */
-const handleAdd = async (fields: API.UserInfo) => {
-  const hide = message.loading('正在添加');
-  try {
-    await addUser({ ...fields });
-    hide();
-    message.success('添加成功');
-    return true;
-  } catch (error) {
-    hide();
-    message.error('添加失败请重试！');
-    return false;
-  }
-};
+const { Option } = Select;
+const { Text, Title: TypographyTitle } = Typography;
 
-/**
- * 更新节点
- * @param fields
- */
-const handleUpdate = async (fields: FormValueType) => {
-  const hide = message.loading('正在配置');
-  try {
-    await modifyUser(
-      {
-        userId: fields.id || '',
-      },
-      {
-        name: fields.name || '',
-        nickName: fields.nickName || '',
-        email: fields.email || '',
-      },
-    );
-    hide();
+export interface PublicJob {
+  id: string;
+  type: string;
+  status: string; // PENDING, QUEUED, RUNNING, RETRYING, SUCCEEDED, FAILED, CANCELLED, TIMED_OUT
+  cloudAccountId: string | null;
+  resourceId: string | null;
+  requestedBy: string | null;
+  payload: any;
+  resultSummary: any;
+  priority: number;
+  progress: number;
+  attemptsMade: number;
+  maxAttempts: number;
+  queuedAt: string | null;
+  startedAt: string | null;
+  completedAt: string | null;
+  cancelledAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+  cloudAccount?: {
+    id: string;
+    name: string;
+    provider: string;
+    providerAccountId: string;
+  } | null;
+  resource?: {
+    id: string;
+    name: string;
+    provider: string;
+    resourceType: string;
+    region: string;
+  } | null;
+}
 
-    message.success('配置成功');
-    return true;
-  } catch (error) {
-    hide();
-    message.error('配置失败请重试！');
-    return false;
-  }
-};
+export interface JobExecution {
+  id: string;
+  jobId: string;
+  attemptNumber: number;
+  workerName: string;
+  status: string;
+  startedAt: string;
+  finishedAt: string | null;
+  durationMs: number | null;
+  errorCode: string | null;
+  errorMessage: string | null;
+  errorDetails: any;
+  output: any;
+  createdAt: string;
+}
 
-/**
- *  删除节点
- * @param selectedRows
- */
-const handleRemove = async (selectedRows: API.UserInfo[]) => {
-  const hide = message.loading('正在删除');
-  if (!selectedRows) return true;
-  try {
-    await deleteUser({
-      userId: selectedRows.find((row) => row.id)?.id || '',
-    });
-    hide();
-    message.success('删除成功，即将刷新');
-    return true;
-  } catch (error) {
-    hide();
-    message.error('删除失败，请重试');
-    return false;
-  }
-};
+export interface JobEvent {
+  id: string;
+  jobId: string;
+  eventType: string;
+  message: string | null;
+  progress: number | null;
+  payload: any;
+  createdAt: string;
+}
 
-const TableList: React.FC<unknown> = () => {
-  const [createModalVisible, handleModalVisible] = useState<boolean>(false);
-  const [updateModalVisible, handleUpdateModalVisible] =
-    useState<boolean>(false);
-  const [stepFormValues, setStepFormValues] = useState({});
-  const actionRef = useRef<ActionType>();
-  const [row, setRow] = useState<API.UserInfo>();
-  const [selectedRowsState, setSelectedRows] = useState<API.UserInfo[]>([]);
-  const columns: ProDescriptionsItemProps<API.UserInfo>[] = [
-    {
-      title: '名称',
-      dataIndex: 'name',
-      tip: '名称是唯一的 key',
-      formItemProps: {
-        rules: [
-          {
-            required: true,
-            message: '名称为必填项',
-          },
-        ],
-      },
-    },
-    {
-      title: '昵称',
-      dataIndex: 'nickName',
-      valueType: 'text',
-    },
-    {
-      title: '性别',
-      dataIndex: 'gender',
-      hideInForm: true,
-      valueEnum: {
-        0: { text: '男', status: 'MALE' },
-        1: { text: '女', status: 'FEMALE' },
-      },
-    },
-    {
-      title: '操作',
-      dataIndex: 'option',
-      valueType: 'option',
-      render: (_, record) => (
-        <>
-          <a
-            onClick={() => {
-              handleUpdateModalVisible(true);
-              setStepFormValues(record);
+export interface QueueSummaryResponse {
+  database: {
+    PENDING: number;
+    QUEUED: number;
+    RUNNING: number;
+    SUCCEEDED: number;
+    FAILED: number;
+    RETRYING: number;
+    CANCELLED: number;
+    TIMED_OUT: number;
+    total: number;
+  };
+  queue: {
+    name: string;
+    waiting: number;
+    active: number;
+    completed: number;
+    failed: number;
+    delayed: number;
+    error?: string;
+  };
+}
+
+const JobsAndQueuesTable: React.FC = () => {
+  const [loading, setLoading] = useState(false);
+  const [queueSummaryLoading, setQueueSummaryLoading] = useState(false);
+  const [jobs, setJobs] = useState<PublicJob[]>([]);
+  const [queueSummary, setQueueSummary] = useState<QueueSummaryResponse | null>(null);
+  const [page, setPage] = useState(1);
+  const [limit] = useState(10);
+  const [total, setTotal] = useState(0);
+
+  // Filters State
+  const [statusFilter, setStatusFilter] = useState<string>('');
+  const [typeFilter, setTypeFilter] = useState<string>('');
+
+  // Info modal State
+  const [detailModalOpen, setDetailModalOpen] = useState(false);
+  const [selectedJob, setSelectedJob] = useState<PublicJob | null>(null);
+  const [executions, setExecutions] = useState<JobExecution[]>([]);
+  const [events, setEvents] = useState<JobEvent[]>([]);
+  const [modalLoading, setModalLoading] = useState(false);
+
+  // Create Job modal State
+  const [createModalOpen, setCreateModalOpen] = useState(false);
+  const [submittingJob, setSubmittingJob] = useState(false);
+  const [createForm] = Form.useForm();
+
+  const detailPollTimer = useRef<NodeJS.Timeout | null>(null);
+  const [userRole] = useState(() => localStorage.getItem('dataflow_user_role') || 'admin');
+
+  // Fetch Queue Metrics (GET /api/v1/queues)
+  const fetchQueueSummary = async () => {
+    setQueueSummaryLoading(true);
+    try {
+      const res = await request('/api/v1/queues', { method: 'GET' });
+      const data = res?.data ?? res;
+      setQueueSummary(data);
+    } catch (err) {
+      console.error('Failed to fetch queue metrics:', err);
+    } finally {
+      setQueueSummaryLoading(false);
+    }
+  };
+
+  // Fetch Jobs List (GET /api/v1/jobs)
+  const fetchJobs = async (showLoading = true) => {
+    if (showLoading) setLoading(true);
+    try {
+      const res = await request('/api/v1/jobs', {
+        method: 'GET',
+        params: {
+          page,
+          limit,
+          status: statusFilter || undefined,
+          type: typeFilter || undefined,
+        }
+      });
+      
+      const items = Array.isArray(res?.data)
+        ? res.data
+        : Array.isArray(res?.data?.data)
+          ? res.data.data
+          : Array.isArray(res)
+            ? res
+            : [];
+      const totalCount =
+        res?.meta?.total ??
+        res?.data?.meta?.total ??
+        items.length;
+      setJobs(items);
+      setTotal(totalCount);
+    } catch (error: any) {
+      if (error?.response?.status !== 401) {
+        message.error(error.response?.data?.message || 'Không thể tải danh sách Jobs.');
+      }
+    } finally {
+      if (showLoading) setLoading(false);
+    }
+  };
+
+  const startPollingDetail = (jobId: string) => {
+    if (detailPollTimer.current) {
+      clearInterval(detailPollTimer.current);
+    }
+    const pollOnce = async () => {
+      try {
+        const [jobRes, exRes, evRes] = await Promise.all([
+          request(`/api/v1/jobs/${jobId}`),
+          request(`/api/v1/jobs/${jobId}/executions`),
+          request(`/api/v1/jobs/${jobId}/events`),
+        ]);
+        const job = jobRes?.data ?? jobRes;
+        const execList = Array.isArray(exRes?.data)
+          ? exRes.data
+          : Array.isArray(exRes)
+            ? exRes
+            : [];
+        const eventList = Array.isArray(evRes?.data)
+          ? evRes.data
+          : Array.isArray(evRes)
+            ? evRes
+            : [];
+        setSelectedJob(job);
+        setExecutions(execList);
+        setEvents(eventList);
+
+        if (['SUCCEEDED', 'FAILED', 'CANCELLED', 'TIMED_OUT'].includes(job.status)) {
+          if (detailPollTimer.current) {
+            clearInterval(detailPollTimer.current);
+            detailPollTimer.current = null;
+          }
+        }
+      } catch (err) {
+        console.error('Error polling job details:', err);
+      }
+    };
+
+    void pollOnce();
+    detailPollTimer.current = setInterval(pollOnce, 1500);
+  };
+
+  const handleOpenDetails = async (job: PublicJob) => {
+    setSelectedJob(job);
+    setDetailModalOpen(true);
+    setModalLoading(true);
+    try {
+      const [exRes, evRes] = await Promise.all([
+        request(`/api/v1/jobs/${job.id}/executions`),
+        request(`/api/v1/jobs/${job.id}/events`),
+      ]);
+      const execList = Array.isArray(exRes?.data)
+        ? exRes.data
+        : Array.isArray(exRes)
+          ? exRes
+          : [];
+      const eventList = Array.isArray(evRes?.data)
+        ? evRes.data
+        : Array.isArray(evRes)
+          ? evRes
+          : [];
+      setExecutions(execList);
+      setEvents(eventList);
+
+      if (['PENDING', 'QUEUED', 'RUNNING', 'RETRYING'].includes(job.status)) {
+        startPollingDetail(job.id);
+      }
+    } catch (err) {
+      message.error('Không thể tải chi tiết Job.');
+    } finally {
+      setModalLoading(false);
+    }
+  };
+
+  const handleCloseDetails = () => {
+    setDetailModalOpen(false);
+    setSelectedJob(null);
+    setExecutions([]);
+    setEvents([]);
+    if (detailPollTimer.current) {
+      clearInterval(detailPollTimer.current);
+      detailPollTimer.current = null;
+    }
+  };
+
+  const handleCancelJob = async (id: string) => {
+    try {
+      await request(`/api/v1/jobs/${id}/cancel`, { method: 'POST' });
+      message.success('Đã gửi yêu cầu hủy Job thành công.');
+      fetchJobs(false);
+      fetchQueueSummary();
+      if (selectedJob && selectedJob.id === id) {
+        handleOpenDetails({ ...selectedJob, status: 'CANCELLED' });
+      }
+    } catch (error: any) {
+      message.error(error.response?.data?.message || 'Hủy Job thất bại.');
+    }
+  };
+
+  const handleRequeueJob = async (id: string) => {
+    try {
+      await request(`/api/v1/jobs/${id}/requeue`, { method: 'POST' });
+      message.success('Đã requeue Job thành công.');
+      fetchJobs(true);
+      fetchQueueSummary();
+      if (selectedJob && selectedJob.id === id) {
+        handleOpenDetails({ ...selectedJob, status: 'QUEUED' });
+      }
+    } catch (error: any) {
+      message.error(error.response?.data?.message || 'Requeue Job thất bại.');
+    }
+  };
+
+  const handleRetryJob = async (id: string) => {
+    try {
+      await request(`/api/v1/jobs/${id}/retry`, { method: 'POST' });
+      message.success('Đã gửi yêu cầu Retry Job thành công.');
+      fetchJobs(true);
+      fetchQueueSummary();
+      if (selectedJob && selectedJob.id === id) {
+        handleOpenDetails({ ...selectedJob, status: 'QUEUED' });
+      }
+    } catch (error: any) {
+      message.error(error.response?.data?.message || 'Retry Job thất bại.');
+    }
+  };
+
+  const handleCreateJob = async (values: any) => {
+    setSubmittingJob(true);
+    try {
+      await request('/api/v1/jobs', {
+        method: 'POST',
+        data: {
+          type: values.type,
+          cloudAccountId: values.cloudAccountId || undefined,
+          priority: values.priority || 1,
+          maxAttempts: values.maxAttempts || 3,
+          payload: values.payload ? JSON.parse(values.payload) : {},
+        },
+      });
+      message.success('Đã tạo và enqueue Job BullMQ thành công!');
+      setCreateModalOpen(false);
+      createForm.resetFields();
+      fetchJobs(true);
+      fetchQueueSummary();
+    } catch (error: any) {
+      message.error(error.response?.data?.message || 'Tạo Job thất bại. Vui lòng kiểm tra định dạng JSON payload.');
+    } finally {
+      setSubmittingJob(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchJobs();
+    fetchQueueSummary();
+    const mainInterval = setInterval(() => {
+      fetchJobs(false);
+      fetchQueueSummary();
+    }, 3000);
+
+    return () => {
+      clearInterval(mainInterval);
+      if (detailPollTimer.current) {
+        clearInterval(detailPollTimer.current);
+      }
+    };
+  }, [page, statusFilter, typeFilter]);
+
+  // Formatter Helpers
+  const formatJobId = (id: string) => {
+    const shortId = `JOB-${id.slice(0, 4).toUpperCase()}`;
+    return (
+      <Space size={4}>
+        <code style={{ color: '#e26f54', fontFamily: 'monospace', fontSize: '13px', fontWeight: 600 }}>
+          {shortId}
+        </code>
+        <Tooltip title="Copy full UUID">
+          <Button
+            type="text"
+            size="small"
+            icon={<CopyOutlined style={{ fontSize: '12px', color: '#8c8c8c' }} />}
+            style={{ padding: '0 4px', height: '20px', minWidth: '20px' }}
+            onClick={(e) => {
+              e.stopPropagation();
+              navigator.clipboard.writeText(id);
+              message.success('Copied Job ID to clipboard');
             }}
-          >
-            配置
-          </a>
-          <Divider type="vertical" />
-          <a href="">订阅警报</a>
-        </>
-      ),
+          />
+        </Tooltip>
+      </Space>
+    );
+  };
+
+  const formatJobType = (type: string) => {
+    let color = 'blue';
+    let label = type;
+    switch (type) {
+      case 'RESOURCE_SYNC':
+        color = 'cyan';
+        label = 'Resource Sync';
+        break;
+      case 'METRIC_COLLECTION':
+        color = 'purple';
+        label = 'Metric Collection';
+        break;
+      case 'INCIDENT_PROCESSING':
+        color = 'red';
+        label = 'Incident Processing';
+        break;
+      case 'NOTIFICATION':
+        color = 'blue';
+        label = 'Notification';
+        break;
+      case 'HEALTH_CHECK':
+        color = 'orange';
+        label = 'Health Check';
+        break;
+    }
+    return <Tag color={color} style={{ fontWeight: 600, fontSize: '11px', borderRadius: '4px', margin: 0 }}>{label}</Tag>;
+  };
+
+  const formatTarget = (record: PublicJob) => {
+    if (record.cloudAccount?.name) {
+      const region = record.payload?.region || record.cloudAccount.provider || 'AWS';
+      return (
+        <span style={{ color: '#d4d4d4', fontSize: '12px', fontWeight: 500 }}>
+          {record.cloudAccount.name} · <span style={{ color: '#8c8c8c' }}>{region}</span>
+        </span>
+      );
+    }
+    if (record.resource?.name) {
+      return (
+        <span style={{ color: '#d4d4d4', fontSize: '12px', fontWeight: 500 }}>
+          {record.resource.name} · <span style={{ color: '#8c8c8c' }}>{record.resource.region || 'global'}</span>
+        </span>
+      );
+    }
+    if (record.payload?.accountName || record.payload?.region) {
+      const acc = record.payload.accountName || 'AWS Account';
+      const reg = record.payload.region || 'ap-southeast-1';
+      return (
+        <span style={{ color: '#d4d4d4', fontSize: '12px', fontWeight: 500 }}>
+          {acc} · <span style={{ color: '#8c8c8c' }}>{reg}</span>
+        </span>
+      );
+    }
+    if (record.cloudAccountId) {
+      return (
+        <span style={{ color: '#d4d4d4', fontSize: '12px', fontWeight: 500 }}>
+          Cloud Account ({record.cloudAccountId.slice(0, 6)})
+        </span>
+      );
+    }
+    return <span style={{ color: '#999', fontSize: '12px' }}>Production AWS · ap-southeast-1</span>;
+  };
+
+  const formatStatus = (status: string) => {
+    switch (status) {
+      case 'SUCCEEDED':
+        return (
+          <Tag style={{ borderRadius: '4px', border: '1px solid #274916', color: '#52c41a', backgroundColor: 'rgba(82, 196, 26, 0.08)', fontWeight: 500, fontSize: '12px', margin: 0 }}>
+            <CheckCircleOutlined style={{ marginRight: 4 }} /> Completed
+          </Tag>
+        );
+      case 'RUNNING':
+        return (
+          <Tag style={{ borderRadius: '4px', border: '1px solid #096dd9', color: '#1890ff', backgroundColor: 'rgba(24, 144, 255, 0.08)', fontWeight: 500, fontSize: '12px', margin: 0 }}>
+            <SyncOutlined spin style={{ marginRight: 4 }} /> Active
+          </Tag>
+        );
+      case 'PENDING':
+      case 'QUEUED':
+        return (
+          <Tag style={{ borderRadius: '4px', border: '1px solid #14393f', color: '#00b4d8', backgroundColor: 'rgba(0, 180, 216, 0.08)', fontWeight: 500, fontSize: '12px', margin: 0 }}>
+            <ClockCircleOutlined style={{ marginRight: 4 }} /> Waiting
+          </Tag>
+        );
+      case 'FAILED':
+      case 'TIMED_OUT':
+        return (
+          <Tag style={{ borderRadius: '4px', border: '1px solid #5c2020', color: '#ff4d4f', backgroundColor: 'rgba(255, 77, 79, 0.08)', fontWeight: 500, fontSize: '12px', margin: 0 }}>
+            <CloseCircleOutlined style={{ marginRight: 4 }} /> Failed
+          </Tag>
+        );
+      case 'RETRYING':
+      case 'CANCELLED':
+        return (
+          <Tag style={{ borderRadius: '4px', border: '1px solid #5b4618', color: '#faad14', backgroundColor: 'rgba(250, 173, 20, 0.08)', fontWeight: 500, fontSize: '12px', margin: 0 }}>
+            <ReloadOutlined spin={status === 'RETRYING'} style={{ marginRight: 4 }} /> Delayed
+          </Tag>
+        );
+      default:
+        return <Tag style={{ borderRadius: '4px', margin: 0 }}>{status}</Tag>;
+    }
+  };
+
+  const formatAttempts = (record: PublicJob) => {
+    const isRetried = record.attemptsMade > 1;
+    return (
+      <Space size={4}>
+        {isRetried && (
+          <Tooltip title="Job has been retried after failure">
+            <WarningOutlined style={{ color: '#faad14', fontSize: '12px' }} />
+          </Tooltip>
+        )}
+        <span style={{ color: isRetried ? '#faad14' : '#bfbfbf', fontSize: '12px', fontWeight: isRetried ? 600 : 400 }}>
+          {record.attemptsMade} / {record.maxAttempts}
+        </span>
+      </Space>
+    );
+  };
+
+  const formatCreatedAt = (createdAt: string) => {
+    const full = dayjs(createdAt).format('YYYY-MM-DD HH:mm:ss');
+    const rel = dayjs(createdAt).locale('en').fromNow();
+    return (
+      <Tooltip title={rel}>
+        <span style={{ color: '#8c8c8c', fontSize: '12px' }}>{full}</span>
+      </Tooltip>
+    );
+  };
+
+  const formatDuration = (record: PublicJob) => {
+    let ms: number | null = null;
+    if (record.startedAt && record.completedAt) {
+      ms = dayjs(record.completedAt).diff(dayjs(record.startedAt));
+    } else if (record.startedAt) {
+      ms = dayjs().diff(dayjs(record.startedAt));
+    }
+
+    if (ms === null || ms < 0) {
+      return <span style={{ color: '#555', fontSize: '12px' }}>-</span>;
+    }
+
+    let formatted = '';
+    if (ms < 1000) {
+      formatted = `${ms}ms`;
+    } else if (ms < 60000) {
+      formatted = `${(ms / 1000).toFixed(1)}s`;
+    } else {
+      formatted = `${(ms / 60000).toFixed(1)}m`;
+    }
+
+    return (
+      <span style={{ color: '#bfbfbf', fontSize: '12px', fontFamily: 'monospace' }}>
+        {formatted}
+      </span>
+    );
+  };
+
+  const columns = [
+    {
+      title: 'Job ID',
+      key: 'id',
+      render: (_: any, record: PublicJob) => formatJobId(record.id),
     },
+    {
+      title: 'Job Type',
+      key: 'type',
+      render: (_: any, record: PublicJob) => formatJobType(record.type),
+    },
+    {
+      title: 'Target',
+      key: 'target',
+      render: (_: any, record: PublicJob) => formatTarget(record),
+    },
+    {
+      title: 'Status',
+      key: 'status',
+      render: (_: any, record: PublicJob) => formatStatus(record.status),
+    },
+    {
+      title: 'Progress',
+      key: 'progress',
+      render: (_: any, record: PublicJob) => (
+        <div style={{ width: '120px' }}>
+          <div style={{ fontSize: '11px', color: '#bfbfbf', marginBottom: 2 }}>
+            {record.progress}%
+          </div>
+          <div style={{
+            height: '4px',
+            width: '100%',
+            backgroundColor: '#303030',
+            borderRadius: '2px',
+            overflow: 'hidden'
+          }}>
+            <div style={{
+              height: '100%',
+              width: `${record.progress}%`,
+              backgroundColor: record.status === 'FAILED' ? '#ff4d4f' : record.status === 'SUCCEEDED' ? '#52c41a' : '#e26f54',
+              transition: 'width 0.3s ease'
+            }} />
+          </div>
+        </div>
+      )
+    },
+    {
+      title: 'Attempts',
+      key: 'attempts',
+      render: (_: any, record: PublicJob) => formatAttempts(record),
+    },
+    {
+      title: 'Created At',
+      key: 'createdAt',
+      render: (_: any, record: PublicJob) => formatCreatedAt(record.createdAt),
+    },
+    {
+      title: 'Actions',
+      key: 'actions',
+      render: (_: any, record: PublicJob) => {
+        const isWritable = userRole === 'admin' || userRole === 'operator';
+        const isCancellable = ['PENDING', 'QUEUED', 'RUNNING', 'RETRYING'].includes(record.status);
+        const isRequeuable = record.status === 'PENDING';
+        const isRetryable = ['FAILED', 'TIMED_OUT'].includes(record.status);
+
+        return (
+          <Space size="small">
+            <Button 
+              size="small" 
+              icon={<EyeOutlined />}
+              onClick={() => handleOpenDetails(record)}
+            >
+              Details
+            </Button>
+
+            {isCancellable && (
+              <Popconfirm
+                title="Bạn có chắc chắn muốn hủy Job này?"
+                onConfirm={() => handleCancelJob(record.id)}
+                disabled={!isWritable}
+                okText="Hủy Job"
+                cancelText="Quay lại"
+              >
+                <Button 
+                  size="small" 
+                  danger 
+                  icon={<StopOutlined />}
+                  disabled={!isWritable}
+                >
+                  Cancel
+                </Button>
+              </Popconfirm>
+            )}
+
+            {isRequeuable && (
+              <Popconfirm
+                title="Bạn có chắc chắn muốn Requeue Job này?"
+                onConfirm={() => handleRequeueJob(record.id)}
+                disabled={!isWritable}
+                okText="Requeue"
+                cancelText="Quay lại"
+              >
+                <Button 
+                  size="small" 
+                  type="primary" 
+                  ghost
+                  icon={<ReloadOutlined />}
+                  disabled={!isWritable}
+                >
+                  Requeue
+                </Button>
+              </Popconfirm>
+            )}
+
+            {isRetryable && (
+              <Popconfirm
+                title="Thử lại (Manual Retry) Job bị lỗi?"
+                onConfirm={() => handleRetryJob(record.id)}
+                disabled={!isWritable}
+                okText="Retry"
+                cancelText="Quay lại"
+              >
+                <Button 
+                  size="small" 
+                  type="primary"
+                  icon={<PlayCircleOutlined />}
+                  disabled={!isWritable}
+                >
+                  Retry
+                </Button>
+              </Popconfirm>
+            )}
+          </Space>
+        );
+      }
+    }
   ];
 
   return (
     <PageContainer
-      header={{
-        title: 'CRUD 示例',
-      }}
-    >
-      <ProTable<API.UserInfo>
-        headerTitle="查询表格"
-        actionRef={actionRef}
-        rowKey="id"
-        search={{
-          labelWidth: 120,
-        }}
-        toolBarRender={() => [
-          <Button
-            key="1"
-            type="primary"
-            onClick={() => handleModalVisible(true)}
-          >
-            新建
-          </Button>,
-        ]}
-        request={async (params, sorter, filter) => {
-          const { data, success } = await queryUserList({
-            ...params,
-            // FIXME: remove @ts-ignore
-            // @ts-ignore
-            sorter,
-            filter,
-          });
-          return {
-            data: data?.list || [],
-            success,
-          };
-        }}
-        columns={columns}
-        rowSelection={{
-          onChange: (_, selectedRows) => setSelectedRows(selectedRows),
-        }}
-      />
-      {selectedRowsState?.length > 0 && (
-        <FooterToolbar
-          extra={
-            <div>
-              已选择{' '}
-              <a style={{ fontWeight: 600 }}>{selectedRowsState.length}</a>{' '}
-              项&nbsp;&nbsp;
-            </div>
-          }
+      title={<span style={{ color: '#fff', fontSize: '20px', fontWeight: 600 }}>Jobs & Queues</span>}
+      subTitle={<span style={{ color: '#8c8c8c' }}>Manage background jobs and queue metrics</span>}
+      extra={[
+        <Button
+          key="trigger"
+          type="primary"
+          icon={<PlusOutlined />}
+          style={{ backgroundColor: '#e26f54', borderColor: '#e26f54' }}
+          onClick={() => {
+            if (userRole === 'viewer') {
+              message.error('Bạn không có quyền khởi tạo Job mới!');
+              return;
+            }
+            createForm.resetFields();
+            setCreateModalOpen(true);
+          }}
+          disabled={userRole === 'viewer'}
         >
-          <Button
-            onClick={async () => {
-              await handleRemove(selectedRowsState);
-              setSelectedRows([]);
-              actionRef.current?.reloadAndRest?.();
-            }}
-          >
-            批量删除
-          </Button>
-          <Button type="primary">批量审批</Button>
-        </FooterToolbar>
-      )}
-      <CreateForm
-        onCancel={() => handleModalVisible(false)}
-        modalVisible={createModalVisible}
-      >
-        <ProTable<API.UserInfo, API.UserInfo>
-          onSubmit={async (value) => {
-            const success = await handleAdd(value);
-            if (success) {
-              handleModalVisible(false);
-              if (actionRef.current) {
-                actionRef.current.reload();
-              }
-            }
-          }}
-          rowKey="id"
-          type="form"
-          columns={columns}
-        />
-      </CreateForm>
-      {stepFormValues && Object.keys(stepFormValues).length ? (
-        <UpdateForm
-          onSubmit={async (value) => {
-            const success = await handleUpdate(value);
-            if (success) {
-              handleUpdateModalVisible(false);
-              setStepFormValues({});
-              if (actionRef.current) {
-                actionRef.current.reload();
-              }
-            }
-          }}
-          onCancel={() => {
-            handleUpdateModalVisible(false);
-            setStepFormValues({});
-          }}
-          updateModalVisible={updateModalVisible}
-          values={stepFormValues}
-        />
-      ) : null}
+          Create Job
+        </Button>
+      ]}
+    >
+      {/* 1. BullMQ & Database Queue Stats Overview */}
+      <Row gutter={[16, 16]} style={{ marginBottom: 20 }}>
+        <Col xs={24} sm={12} md={6}>
+          <Card bordered={false} bodyStyle={{ padding: '16px 20px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <div>
+                <div style={{ color: '#8c8c8c', fontSize: '12px', fontWeight: 500 }}>WAITING QUEUE</div>
+                <div style={{ fontSize: '24px', fontWeight: 700, color: '#00b4d8', marginTop: 4 }}>
+                  {queueSummary?.queue?.waiting ?? 0}
+                </div>
+              </div>
+              <ClockCircleOutlined style={{ fontSize: '28px', color: '#00b4d8', opacity: 0.8 }} />
+            </div>
+            <div style={{ marginTop: 8, fontSize: '11px', color: '#555' }}>
+              Queue: {queueSummary?.queue?.name || 'cloudops-queue'}
+            </div>
+          </Card>
+        </Col>
 
-      <Drawer
-        width={600}
-        open={!!row}
-        onClose={() => {
-          setRow(undefined);
-        }}
-        closable={false}
-      >
-        {row?.name && (
-          <ProDescriptions<API.UserInfo>
-            column={2}
-            title={row?.name}
-            request={async () => ({
-              data: row || {},
-            })}
-            params={{
-              id: row?.name,
+        <Col xs={24} sm={12} md={6}>
+          <Card bordered={false} bodyStyle={{ padding: '16px 20px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <div>
+                <div style={{ color: '#8c8c8c', fontSize: '12px', fontWeight: 500 }}>ACTIVE EXECUTING</div>
+                <div style={{ fontSize: '24px', fontWeight: 700, color: '#1890ff', marginTop: 4 }}>
+                  {queueSummary?.queue?.active ?? queueSummary?.database?.RUNNING ?? 0}
+                </div>
+              </div>
+              <ThunderboltOutlined style={{ fontSize: '28px', color: '#1890ff', opacity: 0.8 }} />
+            </div>
+            <div style={{ marginTop: 8, fontSize: '11px', color: '#555' }}>
+              Running: {queueSummary?.database?.RUNNING ?? 0} in DB
+            </div>
+          </Card>
+        </Col>
+
+        <Col xs={24} sm={12} md={6}>
+          <Card bordered={false} bodyStyle={{ padding: '16px 20px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <div>
+                <div style={{ color: '#8c8c8c', fontSize: '12px', fontWeight: 500 }}>COMPLETED JOBS</div>
+                <div style={{ fontSize: '24px', fontWeight: 700, color: '#52c41a', marginTop: 4 }}>
+                  {queueSummary?.database?.SUCCEEDED ?? queueSummary?.queue?.completed ?? 0}
+                </div>
+              </div>
+              <CheckCircleOutlined style={{ fontSize: '28px', color: '#52c41a', opacity: 0.8 }} />
+            </div>
+            <div style={{ marginTop: 8, fontSize: '11px', color: '#555' }}>
+              Total DB: {queueSummary?.database?.total ?? 0}
+            </div>
+          </Card>
+        </Col>
+
+        <Col xs={24} sm={12} md={6}>
+          <Card bordered={false} bodyStyle={{ padding: '16px 20px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <div>
+                <div style={{ color: '#8c8c8c', fontSize: '12px', fontWeight: 500 }}>FAILED / DEAD LETTER</div>
+                <div style={{ fontSize: '24px', fontWeight: 700, color: '#ff4d4f', marginTop: 4 }}>
+                  {queueSummary?.database?.FAILED ?? queueSummary?.queue?.failed ?? 0}
+                </div>
+              </div>
+              <ExclamationCircleOutlined style={{ fontSize: '28px', color: '#ff4d4f', opacity: 0.8 }} />
+            </div>
+            <div style={{ marginTop: 8, fontSize: '11px', color: '#555' }}>
+              Retrying: {queueSummary?.database?.RETRYING ?? 0}
+            </div>
+          </Card>
+        </Col>
+      </Row>
+
+      {/* 2. Control Toolbar & Filters */}
+      <Card bordered={false} style={{ marginBottom: 16 }}>
+        <Space size="large" wrap align="center" style={{ width: '100%', justifyContent: 'space-between' }}>
+          <Space size="medium" wrap>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{ color: '#bfbfbf', fontSize: '13px' }}>Status:</span>
+              <Select 
+                value={statusFilter} 
+                onChange={(val) => { setStatusFilter(val); setPage(1); }}
+                style={{ width: 150 }}
+                dropdownStyle={{ backgroundColor: '#1c1c1c' }}
+              >
+                <Option value="">All Statuses</Option>
+                <Option value="PENDING">Waiting</Option>
+                <Option value="RUNNING">Active</Option>
+                <Option value="SUCCEEDED">Completed</Option>
+                <Option value="FAILED">Failed</Option>
+                <Option value="RETRYING">Delayed</Option>
+                <Option value="CANCELLED">Cancelled</Option>
+              </Select>
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{ color: '#bfbfbf', fontSize: '13px' }}>Type:</span>
+              <Select 
+                value={typeFilter} 
+                onChange={(val) => { setTypeFilter(val); setPage(1); }}
+                style={{ width: 180 }}
+                dropdownStyle={{ backgroundColor: '#1c1c1c' }}
+              >
+                <Option value="">All Job Types</Option>
+                <Option value="RESOURCE_SYNC">Resource Sync</Option>
+                <Option value="METRIC_COLLECTION">Metric Collection</Option>
+                <Option value="INCIDENT_PROCESSING">Incident Processing</Option>
+                <Option value="NOTIFICATION">Notification</Option>
+                <Option value="HEALTH_CHECK">Health Check</Option>
+              </Select>
+            </div>
+          </Space>
+
+          <Button 
+            icon={<SyncOutlined spin={loading || queueSummaryLoading} />}
+            onClick={() => {
+              fetchJobs(true);
+              fetchQueueSummary();
             }}
-            columns={columns}
-          />
+            style={{ backgroundColor: 'transparent', color: '#fff', border: '1px solid #434343' }}
+          >
+            Refresh Now
+          </Button>
+        </Space>
+      </Card>
+
+      {/* 3. Main Jobs Data Table */}
+      <Card bordered={false}>
+        <Table 
+          columns={columns} 
+          dataSource={jobs} 
+          rowKey="id"
+          loading={loading}
+          pagination={{ 
+            current: page,
+            pageSize: limit,
+            total,
+            onChange: (p) => setPage(p),
+            showSizeChanger: false
+          }}
+          style={{ backgroundColor: '#1c1c1c' }}
+          scroll={{ x: 'max-content' }}
+        />
+      </Card>
+
+      {/* 4. Create Job Modal */}
+      <Modal
+        title={
+          <Space>
+            <ThunderboltOutlined style={{ color: '#e26f54' }} />
+            <span style={{ color: '#fff', fontSize: '16px', fontWeight: 600 }}>Create & Enqueue Job</span>
+          </Space>
+        }
+        open={createModalOpen}
+        onCancel={() => setCreateModalOpen(false)}
+        footer={null}
+        className="glass-panel"
+      >
+        <Form 
+          form={createForm} 
+          layout="vertical" 
+          onFinish={handleCreateJob}
+          initialValues={{ type: 'RESOURCE_SYNC', priority: 1, maxAttempts: 3, payload: '{\n  "region": "ap-southeast-1",\n  "mode": "full"\n}' }}
+          style={{ marginTop: 16 }}
+        >
+          <Form.Item
+            label={<span style={{ color: '#d9d9d9' }}>Job Type</span>}
+            name="type"
+            rules={[{ required: true, message: 'Select Job Type' }]}
+          >
+            <Select dropdownStyle={{ backgroundColor: '#1c1c1c' }}>
+              <Select.Option value="RESOURCE_SYNC">RESOURCE_SYNC (Resource Sync)</Select.Option>
+
+              <Select.Option value="METRIC_COLLECTION">METRIC_COLLECTION (Metric Collection)</Select.Option>
+              <Select.Option value="INCIDENT_PROCESSING">INCIDENT_PROCESSING (Incident Processing)</Select.Option>
+              <Select.Option value="NOTIFICATION">NOTIFICATION (Notification)</Select.Option>
+              <Select.Option value="HEALTH_CHECK">HEALTH_CHECK (Health Check)</Select.Option>
+            </Select>
+          </Form.Item>
+
+          <Form.Item
+            label={<span style={{ color: '#d9d9d9' }}>Cloud Account ID (Optional UUID)</span>}
+            name="cloudAccountId"
+          >
+            <Input placeholder="e.g. 550e8400-e29b-41d4-a716-446655440000" />
+          </Form.Item>
+
+          <Row gutter={16}>
+            <Col span={12}>
+              <Form.Item
+                label={<span style={{ color: '#d9d9d9' }}>Priority (1-10)</span>}
+                name="priority"
+              >
+                <InputNumber min={1} max={10} style={{ width: '100%' }} />
+              </Form.Item>
+            </Col>
+            <Col span={12}>
+              <Form.Item
+                label={<span style={{ color: '#d9d9d9' }}>Max Retry Attempts</span>}
+                name="maxAttempts"
+              >
+                <InputNumber min={1} max={10} style={{ width: '100%' }} />
+              </Form.Item>
+            </Col>
+          </Row>
+
+          <Form.Item
+            label={<span style={{ color: '#d9d9d9' }}>Payload (JSON)</span>}
+            name="payload"
+          >
+            <Input.TextArea rows={4} style={{ fontFamily: 'monospace', backgroundColor: '#111', color: '#d4d4d4' }} />
+          </Form.Item>
+
+          <Form.Item style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 0, marginTop: 24 }}>
+            <Space>
+              <Button onClick={() => setCreateModalOpen(false)} style={{ backgroundColor: 'transparent', color: '#8c8c8c', border: '1px solid #333' }}>
+                Cancel
+              </Button>
+              <Button type="primary" htmlType="submit" loading={submittingJob} style={{ backgroundColor: '#e26f54', borderColor: '#e26f54' }}>
+                Enqueue Job
+              </Button>
+            </Space>
+          </Form.Item>
+        </Form>
+      </Modal>
+
+      {/* 5. Job Details Modal */}
+      <Modal
+        title={
+          <Space>
+            <HistoryOutlined style={{ color: '#e26f54' }} />
+            <span style={{ color: '#fff', fontSize: '16px', fontWeight: 600 }}>
+              Job Execution Details
+            </span>
+          </Space>
+        }
+        open={detailModalOpen}
+        onCancel={handleCloseDetails}
+        footer={[
+          selectedJob && ['PENDING', 'QUEUED', 'RUNNING', 'RETRYING'].includes(selectedJob.status) && (
+            <Popconfirm
+              key="cancel-modal"
+              title="Bạn có chắc chắn muốn hủy Job này?"
+              onConfirm={() => handleCancelJob(selectedJob.id)}
+              disabled={userRole === 'viewer'}
+              okText="Hủy Job"
+              cancelText="Quay lại"
+            >
+              <Button danger icon={<StopOutlined />} disabled={userRole === 'viewer'}>
+                Cancel Job
+              </Button>
+            </Popconfirm>
+          ),
+          selectedJob && selectedJob.status === 'PENDING' && (
+            <Popconfirm
+              key="requeue-modal"
+              title="Bạn có chắc chắn muốn Requeue Job này?"
+              onConfirm={() => handleRequeueJob(selectedJob.id)}
+              disabled={userRole === 'viewer'}
+              okText="Requeue"
+              cancelText="Quay lại"
+            >
+              <Button type="primary" ghost icon={<ReloadOutlined />} disabled={userRole === 'viewer'}>
+                Requeue Job
+              </Button>
+            </Popconfirm>
+          ),
+          <Button 
+            key="close" 
+            onClick={handleCloseDetails}
+            style={{ backgroundColor: 'transparent', color: '#d9d9d9', border: '1px solid #434343', borderRadius: '6px' }}
+          >
+            Close
+          </Button>
+        ]}
+        width={720}
+        loading={modalLoading}
+        className="glass-panel"
+      >
+        {selectedJob && (
+          <div style={{ marginTop: 20 }}>
+            <Tabs defaultActiveKey="overview" items={[
+              {
+                key: 'overview',
+                label: 'Overview',
+                children: (
+                  <div style={{ padding: '8px 0' }}>
+                    <Row gutter={[16, 24]}>
+                      <Col span={12}>
+                        <div style={{ color: '#8c8c8c', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 4 }}>Job ID</div>
+                        <code style={{ color: '#ffffff', fontSize: '13px', fontFamily: 'monospace' }}>{selectedJob.id}</code>
+                      </Col>
+                      <Col span={12}>
+                        <div style={{ color: '#8c8c8c', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 4 }}>Status</div>
+                        <div style={{ marginTop: 2 }}>{formatStatus(selectedJob.status)}</div>
+                      </Col>
+                      <Col span={12}>
+                        <div style={{ color: '#8c8c8c', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 4 }}>Job Type</div>
+                        {formatJobType(selectedJob.type)}
+                      </Col>
+                      <Col span={12}>
+                        <div style={{ color: '#8c8c8c', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 4 }}>Progress</div>
+                        <div style={{ width: '100%', marginTop: 2 }}>
+                          <span style={{ fontSize: '11px', color: '#bfbfbf', marginRight: 8 }}>{selectedJob.progress}%</span>
+                          <div style={{
+                            height: '6px',
+                            width: '120px',
+                            display: 'inline-block',
+                            backgroundColor: '#303030',
+                            borderRadius: '3px',
+                            overflow: 'hidden',
+                            verticalAlign: 'middle'
+                          }}>
+                            <div style={{
+                              height: '100%',
+                              width: `${selectedJob.progress}%`,
+                              backgroundColor: '#e26f54',
+                              transition: 'width 0.3s ease'
+                            }} />
+                          </div>
+                        </div>
+                      </Col>
+                      <Col span={12}>
+                        <div style={{ color: '#8c8c8c', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 4 }}>Target</div>
+                        {formatTarget(selectedJob)}
+                      </Col>
+                      <Col span={12}>
+                        <div style={{ color: '#8c8c8c', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 4 }}>Attempts</div>
+                        {formatAttempts(selectedJob)}
+                      </Col>
+                      <Col span={12}>
+                        <div style={{ color: '#8c8c8c', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 4 }}>Created At</div>
+                        <span style={{ color: '#ffffff', fontSize: '13px' }}><FieldTimeOutlined style={{ marginRight: 4 }} />{selectedJob.createdAt ? dayjs(selectedJob.createdAt).format('YYYY-MM-DD HH:mm:ss') : 'Never'}</span>
+                      </Col>
+                      <Col span={12}>
+                        <div style={{ color: '#8c8c8c', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 4 }}>Duration</div>
+                        {formatDuration(selectedJob)}
+                      </Col>
+                      <Col span={24}>
+                        <div style={{ color: '#8c8c8c', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>Payload Parameters</div>
+                        <pre style={{ 
+                          backgroundColor: '#111', 
+                          padding: '12px', 
+                          borderRadius: '6px', 
+                          border: '1px solid #262626',
+                          fontSize: '11px',
+                          fontFamily: 'monospace',
+                          color: '#d4d4d4',
+                          maxHeight: '130px',
+                          overflowY: 'auto',
+                          margin: 0
+                        }}>
+                          {JSON.stringify(selectedJob.payload || {}, null, 2)}
+                        </pre>
+                      </Col>
+                      {selectedJob.resultSummary && (
+                        <Col span={24}>
+                          <div style={{ color: '#8c8c8c', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>Result Summary</div>
+                          <pre style={{ 
+                            backgroundColor: '#111', 
+                            padding: '12px', 
+                            borderRadius: '6px', 
+                            border: '1px solid #2d1f1f',
+                            fontSize: '11px',
+                            fontFamily: 'monospace',
+                            color: selectedJob.status === 'FAILED' ? '#ff4d4f' : '#d4d4d4',
+                            maxHeight: '130px',
+                            overflowY: 'auto',
+                            margin: 0
+                          }}>
+                            {JSON.stringify(selectedJob.resultSummary, null, 2)}
+                          </pre>
+                        </Col>
+                      )}
+                    </Row>
+                  </div>
+                )
+              },
+              {
+                key: 'executions',
+                label: 'Executions Log',
+                children: (
+                  <Table 
+                    dataSource={executions}
+                    rowKey="id"
+                    pagination={false}
+                    size="small"
+                    style={{ backgroundColor: '#1c1c1c', marginTop: 8 }}
+                    columns={[
+                      {
+                        title: 'Attempt',
+                        dataIndex: 'attemptNumber',
+                        key: 'attemptNumber',
+                        render: (val: number) => <strong style={{ color: '#e26f54' }}>#{val}</strong>
+                      },
+                      {
+                        title: 'Worker',
+                        dataIndex: 'workerName',
+                        key: 'workerName',
+                        render: (val: string) => <code style={{ color: '#bfbfbf', fontSize: '11px' }}><ClusterOutlined style={{ marginRight: 4 }} />{val}</code>
+                      },
+                      {
+                        title: 'Status',
+                        dataIndex: 'status',
+                        key: 'status',
+                        render: (val: string) => formatStatus(val)
+                      },
+                      {
+                        title: 'Duration',
+                        dataIndex: 'durationMs',
+                        key: 'durationMs',
+                        render: (val: number | null) => val !== null ? `${val}ms` : '-'
+                      },
+                      {
+                        title: 'Error Message',
+                        dataIndex: 'errorMessage',
+                        key: 'errorMessage',
+                        render: (val: string | null) => val ? (
+                          <Text type="danger" style={{ fontSize: '11px' }}>{val}</Text>
+                        ) : <span style={{ color: '#555' }}>-</span>
+                      }
+                    ]}
+                  />
+                )
+              },
+              {
+                key: 'events',
+                label: 'Event Timelines',
+                children: (
+                  <div style={{ marginTop: 16, maxHeight: '350px', overflowY: 'auto', padding: '12px 20px 8px 8px' }}>
+                    {events.length === 0 ? (
+                      <div style={{ color: '#555', textAlign: 'center', padding: '24px 0' }}>No events logged yet.</div>
+                    ) : (
+                      <Timeline>
+                        {events.map((ev) => {
+                          let dotIcon = <InfoCircleOutlined style={{ fontSize: '14px', color: '#1890ff' }} />;
+                          if (ev.eventType.includes('COMPLETED') || ev.eventType.includes('SUCCEEDED')) {
+                            dotIcon = <CheckCircleOutlined style={{ fontSize: '14px', color: '#52c41a' }} />;
+                          } else if (ev.eventType.includes('FAILED') || ev.eventType.includes('ERROR')) {
+                            dotIcon = <CloseCircleOutlined style={{ fontSize: '14px', color: '#ff4d4f' }} />;
+                          }
+                          return (
+                            <Timeline.Item key={ev.id} dot={dotIcon}>
+                              <div style={{ color: '#d4d4d4', fontSize: '13px', fontWeight: 600 }}>
+                                {ev.eventType}
+                              </div>
+                              {ev.message && (
+                                <div style={{ color: '#8c8c8c', fontSize: '12px', marginTop: 2 }}>
+                                  {ev.message}
+                                </div>
+                              )}
+                              <div style={{ color: '#555', fontSize: '11px', marginTop: 4 }}>
+                                {dayjs(ev.createdAt).format('YYYY-MM-DD HH:mm:ss')}
+                              </div>
+                            </Timeline.Item>
+                          );
+                        })}
+                      </Timeline>
+                    )}
+                  </div>
+                )
+              }
+            ]} />
+          </div>
         )}
-      </Drawer>
+      </Modal>
     </PageContainer>
   );
 };
 
-export default TableList;
+export default JobsAndQueuesTable;

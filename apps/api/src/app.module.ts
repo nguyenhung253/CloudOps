@@ -24,7 +24,8 @@ import { AuditLogsModule } from './modules/audit-logs/audit-logs.module';
 import { DashboardModule } from './modules/dashboard/dashboard.module';
 import { WorkersModule } from './modules/workers/workers.module';
 import { QueuesModule } from './modules/queues/queues.module';
-
+import { SchedulesModule } from './modules/schedules/schedules.module';
+import { SettingsModule } from './modules/settings/settings.module';
 @Module({
   imports: [
     LoggerModule.forRoot({
@@ -92,6 +93,8 @@ import { QueuesModule } from './modules/queues/queues.module';
     DashboardModule,
     WorkersModule,
     QueuesModule,
+    SchedulesModule,
+    SettingsModule,
   ],
 })
 
