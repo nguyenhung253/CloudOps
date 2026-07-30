@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   DefaultValuePipe,
+  Delete,
   Get,
   HttpCode,
   HttpStatus,
@@ -17,20 +18,19 @@ import {
 import { UserRole } from '@prisma/client';
 import type { User } from '@prisma/client';
 import type { Request } from 'express';
-import { IncidentsService } from './incidents.service';
-import { CreateIncidentDto } from './dto/create-incident.dto';
-import { UpdateIncidentStatusDto } from './dto/update-incident-status.dto';
-import { AddTimelineDto } from './dto/add-timeline.dto';
-import { AddEvidenceDto } from './dto/add-evidence.dto';
+import { AlertRulesService } from './alert-rules.service';
+import { CreateAlertRuleDto } from './dto/create-alert-rule.dto';
+import { UpdateAlertRuleDto } from './dto/update-alert-rule.dto';
+import { ListAlertRulesDto } from './dto/list-alert-rules.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 
-@Controller('incidents')
+@Controller('alert-rules')
 @UseGuards(JwtAuthGuard, RolesGuard)
-export class IncidentsController {
-  constructor(private readonly incidentsService: IncidentsService) {}
+export class AlertRulesController {
+  constructor(private readonly alertRulesService: AlertRulesService) {}
 
   private getRequestId(req: Request): string | undefined {
     return (req as Request & { id?: string }).id || (req.headers['x-request-id'] as string | undefined);
@@ -39,11 +39,11 @@ export class IncidentsController {
   @Post()
   @Roles(UserRole.ADMIN, UserRole.OPERATOR)
   async create(
-    @Body() dto: CreateIncidentDto,
+    @Body() dto: CreateAlertRuleDto,
     @CurrentUser() user: User,
     @Req() req: Request,
   ) {
-    return this.incidentsService.create(dto, user, this.getRequestId(req));
+    return this.alertRulesService.create(dto, user, this.getRequestId(req));
   }
 
   @Get()
@@ -51,79 +51,69 @@ export class IncidentsController {
   async list(
     @Query('page', new DefaultValuePipe(1), ParseIntPipe) page: number,
     @Query('limit', new DefaultValuePipe(20), ParseIntPipe) limit: number,
-    @Query('primaryResourceId') primaryResourceId?: string,
-    @Query('assigneeId') assigneeId?: string,
-    @Query('status') status?: string,
+    @Query('cloudAccountId') cloudAccountId?: string,
+    @Query('resourceId') resourceId?: string,
+    @Query('resourceType') resourceType?: string,
     @Query('severity') severity?: string,
     @Query('search') search?: string,
   ) {
-    return this.incidentsService.findAll(
-      { primaryResourceId, assigneeId, status, severity, search },
-      page,
-      limit,
-    );
+    const filters: ListAlertRulesDto = {};
+    if (cloudAccountId) filters.cloudAccountId = cloudAccountId;
+    if (resourceId) filters.resourceId = resourceId;
+    if (resourceType) filters.resourceType = resourceType;
+    if (severity) filters.severity = severity as any;
+    if (search) filters.search = search;
+
+    return this.alertRulesService.findAll(filters, page, limit);
   }
 
   @Get(':id')
   @Roles(UserRole.ADMIN, UserRole.OPERATOR, UserRole.VIEWER)
   async getById(@Param('id', ParseUUIDPipe) id: string) {
-    return this.incidentsService.findOne(id);
+    return this.alertRulesService.findOne(id);
   }
 
-  @Patch(':id/status')
+  @Patch(':id')
   @Roles(UserRole.ADMIN, UserRole.OPERATOR)
-  async updateStatus(
+  async update(
     @Param('id', ParseUUIDPipe) id: string,
-    @Body() dto: UpdateIncidentStatusDto,
+    @Body() dto: UpdateAlertRuleDto,
     @CurrentUser() user: User,
     @Req() req: Request,
   ) {
-    return this.incidentsService.updateStatus(id, dto, user, this.getRequestId(req));
+    return this.alertRulesService.update(id, dto, user, this.getRequestId(req));
   }
 
-  @Post(':id/timeline')
-  @Roles(UserRole.ADMIN, UserRole.OPERATOR)
-  async addTimeline(
-    @Param('id', ParseUUIDPipe) id: string,
-    @Body() dto: AddTimelineDto,
-    @CurrentUser() user: User,
-    @Req() req: Request,
-  ) {
-    return this.incidentsService.addTimeline(id, dto, user, this.getRequestId(req));
-  }
-
-  @Post(':id/evidence')
-  @Roles(UserRole.ADMIN, UserRole.OPERATOR)
-  async addEvidence(
-    @Param('id', ParseUUIDPipe) id: string,
-    @Body() dto: AddEvidenceDto,
-    @CurrentUser() user: User,
-    @Req() req: Request,
-  ) {
-    return this.incidentsService.addEvidence(id, dto, user, this.getRequestId(req));
-  }
-
-  @Post(':id/root-cause')
+  @Post(':id/enable')
   @Roles(UserRole.ADMIN, UserRole.OPERATOR)
   @HttpCode(HttpStatus.OK)
-  async addRootCause(
+  async enable(
     @Param('id', ParseUUIDPipe) id: string,
-    @Body() body: { rootCause: string },
     @CurrentUser() user: User,
     @Req() req: Request,
   ) {
-    return this.incidentsService.addRootCause(id, body, user, this.getRequestId(req));
+    return this.alertRulesService.enable(id, user, this.getRequestId(req));
   }
 
-  @Post(':id/resolution')
+  @Post(':id/disable')
   @Roles(UserRole.ADMIN, UserRole.OPERATOR)
   @HttpCode(HttpStatus.OK)
-  async addResolutionNote(
+  async disable(
     @Param('id', ParseUUIDPipe) id: string,
-    @Body() body: { resolutionNote: string },
     @CurrentUser() user: User,
     @Req() req: Request,
   ) {
-    return this.incidentsService.addResolutionNote(id, body, user, this.getRequestId(req));
+    return this.alertRulesService.disable(id, user, this.getRequestId(req));
+  }
+
+  @Delete(':id')
+  @Roles(UserRole.ADMIN)
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async remove(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: User,
+    @Req() req: Request,
+  ) {
+    await this.alertRulesService.softDelete(id, user, this.getRequestId(req));
   }
 }

@@ -1,0 +1,311 @@
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
+import { PrismaService } from '@app/database';
+import {
+  AlertStatus,
+  IncidentSeverity,
+  IncidentStatus,
+  Prisma,
+  User,
+} from '@prisma/client';
+import { ListAlertsDto } from './dto/list-alerts.dto';
+import { CreateIncidentFromAlertDto } from './dto/create-incident-from-alert.dto';
+import { AuditLogsService } from '../audit-logs/audit-logs.service';
+
+const ALERT_INCLUDES = {
+  alertRule: { select: { id: true, name: true, severity: true } },
+  resource: { select: { id: true, name: true, resourceType: true, providerResourceId: true } },
+  acknowledger: { select: { id: true, fullName: true, email: true } },
+  resolver: { select: { id: true, fullName: true, email: true } },
+} as const;
+
+function severityToIncidentSeverity(severity: string): IncidentSeverity {
+  switch (severity) {
+    case 'CRITICAL': return IncidentSeverity.SEV1;
+    case 'WARNING': return IncidentSeverity.SEV3;
+    default: return IncidentSeverity.SEV4;
+  }
+}
+
+@Injectable()
+export class AlertsService {
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly auditLogsService: AuditLogsService,
+  ) {}
+
+  async findAll(filters: ListAlertsDto = {}, page = 1, limit = 20) {
+    const skip = (Math.max(1, page) - 1) * Math.min(100, Math.max(1, limit));
+
+    const where: Prisma.AlertWhereInput = {};
+
+    if (filters.alertRuleId) where.alertRuleId = filters.alertRuleId;
+    if (filters.resourceId) where.resourceId = filters.resourceId;
+    if (filters.status) where.status = filters.status;
+    if (filters.severity) where.severity = filters.severity;
+    if (filters.search) {
+      where.OR = [
+        { title: { contains: filters.search, mode: 'insensitive' } },
+        { message: { contains: filters.search, mode: 'insensitive' } },
+      ];
+    }
+
+    const [items, total] = await this.prisma.$transaction([
+      this.prisma.alert.findMany({
+        where,
+        include: ALERT_INCLUDES,
+        orderBy: { lastTriggeredAt: 'desc' },
+        skip,
+        take: limit,
+      }),
+      this.prisma.alert.count({ where }),
+    ]);
+
+    return {
+      data: items,
+      meta: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit) || 1,
+      },
+    };
+  }
+
+  async findByIdOrThrow(id: string) {
+    const alert = await this.prisma.alert.findUnique({
+      where: { id },
+      include: ALERT_INCLUDES,
+    });
+    if (!alert) {
+      throw new NotFoundException(`Alert ${id} not found`);
+    }
+    return alert;
+  }
+
+  async findOne(id: string) {
+    return this.findByIdOrThrow(id);
+  }
+
+  async acknowledge(id: string, actor: User, requestId?: string) {
+    const alert = await this.findByIdOrThrow(id);
+
+    if (alert.status !== AlertStatus.OPEN) {
+      throw new BadRequestException(
+        `Cannot acknowledge alert in "${alert.status}" status. Only OPEN alerts can be acknowledged.`,
+      );
+    }
+
+    const now = new Date();
+    const [updated] = await this.prisma.$transaction([
+      this.prisma.alert.update({
+        where: { id },
+        data: {
+          status: AlertStatus.ACKNOWLEDGED,
+          acknowledgedAt: now,
+          acknowledgedBy: actor.id,
+        },
+        include: ALERT_INCLUDES,
+      }),
+      this.prisma.alertEvent.create({
+        data: {
+          alertId: id,
+          eventType: 'ACKNOWLEDGED',
+          actorUserId: actor.id,
+          payload: {
+            previousStatus: alert.status,
+            newStatus: AlertStatus.ACKNOWLEDGED,
+            timestamp: now.toISOString(),
+          },
+        },
+      }),
+    ]);
+
+    await this.auditLogsService.create({
+      actorUserId: actor.id,
+      action: 'ALERT_ACKNOWLEDGED',
+      targetType: 'alert',
+      targetId: id,
+      requestId,
+      metadata: {
+        alertTitle: alert.title,
+        previousStatus: alert.status,
+        newStatus: AlertStatus.ACKNOWLEDGED,
+      },
+    });
+
+    return updated;
+  }
+
+  async resolve(id: string, actor: User, requestId?: string) {
+    const alert = await this.findByIdOrThrow(id);
+
+    if (alert.status === AlertStatus.RESOLVED) {
+      throw new BadRequestException('Alert is already resolved');
+    }
+
+    const now = new Date();
+    const [updated] = await this.prisma.$transaction([
+      this.prisma.alert.update({
+        where: { id },
+        data: {
+          status: AlertStatus.RESOLVED,
+          resolvedAt: now,
+          resolvedBy: actor.id,
+        },
+        include: ALERT_INCLUDES,
+      }),
+      this.prisma.alertEvent.create({
+        data: {
+          alertId: id,
+          eventType: 'RESOLVED',
+          actorUserId: actor.id,
+          payload: {
+            previousStatus: alert.status,
+            newStatus: AlertStatus.RESOLVED,
+            timestamp: now.toISOString(),
+          },
+        },
+      }),
+    ]);
+
+    await this.auditLogsService.create({
+      actorUserId: actor.id,
+      action: 'ALERT_RESOLVED',
+      targetType: 'alert',
+      targetId: id,
+      requestId,
+      metadata: {
+        alertTitle: alert.title,
+        previousStatus: alert.status,
+        newStatus: AlertStatus.RESOLVED,
+      },
+    });
+
+    return updated;
+  }
+
+  async createIncidentFromAlert(
+    alertId: string,
+    dto: CreateIncidentFromAlertDto,
+    actor: User,
+    requestId?: string,
+  ) {
+    const alert = await this.findByIdOrThrow(alertId);
+
+    // Check if alert already linked to an incident
+    const existingLink = await this.prisma.incidentAlert.findFirst({
+      where: { alertId },
+    });
+    if (existingLink) {
+      throw new BadRequestException(
+        `Alert is already linked to incident ${existingLink.incidentId}`,
+      );
+    }
+
+    const now = new Date();
+    const dedupKey = `alert:${alertId}`;
+
+    // Check if there's already an incident for this dedup key (idempotency)
+    const existingIncident = await this.prisma.incident.findFirst({
+      where: { dedupKey, status: { not: IncidentStatus.CLOSED } },
+    });
+    if (existingIncident) {
+      throw new BadRequestException(
+        `An active incident (${existingIncident.id}) already exists for this alert`,
+      );
+    }
+
+    const incidentSeverity = severityToIncidentSeverity(alert.severity);
+
+    const result = await this.prisma.$transaction(async (tx) => {
+      const incident = await tx.incident.create({
+        data: {
+          title: dto.title.trim(),
+          description: dto.description.trim(),
+          status: IncidentStatus.OPEN,
+          severity: incidentSeverity,
+          primaryResourceId: alert.resourceId,
+          assigneeId: dto.assigneeId,
+          createdBy: actor.id,
+          createdByType: 'USER',
+          dedupKey,
+          ruleCode: `alert_rule:${alert.alertRuleId}`,
+          latestMetricSnapshot: alert.observedValue !== null
+            ? { observedValue: alert.observedValue, thresholdValue: alert.thresholdValue }
+            : undefined,
+          openedAt: now,
+          lastObservedAt: now,
+          occurrenceCount: 1,
+        },
+      });
+
+      // Link alert to incident
+      await tx.incidentAlert.create({
+        data: {
+          incidentId: incident.id,
+          alertId: alert.id,
+          linkedBy: actor.id,
+          linkedAt: now,
+        },
+      });
+
+      // Auto-add timeline: incident created
+      await tx.incidentTimeline.create({
+        data: {
+          incidentId: incident.id,
+          eventType: 'INCIDENT_CREATED',
+          actorUserId: actor.id,
+          content: `Incident created from alert: ${alert.title}\n\n${dto.description}`,
+          metadata: {
+            alertId: alert.id,
+            alertSeverity: alert.severity,
+            observedValue: alert.observedValue,
+            thresholdValue: alert.thresholdValue,
+          },
+        },
+      });
+
+      // Auto-add metric evidence
+      if (alert.resourceId) {
+        await tx.incidentEvidence.create({
+          data: {
+            incidentId: incident.id,
+            evidenceType: 'METRIC_SNAPSHOT',
+            resourceId: alert.resourceId,
+            snapshot: {
+              alertId: alert.id,
+              alertTitle: alert.title,
+              observedValue: alert.observedValue,
+              thresholdValue: alert.thresholdValue,
+              firstTriggeredAt: alert.firstTriggeredAt,
+              lastTriggeredAt: alert.lastTriggeredAt,
+            },
+            addedBy: actor.id,
+          },
+        });
+      }
+
+      return incident;
+    });
+
+    await this.auditLogsService.create({
+      actorUserId: actor.id,
+      action: 'INCIDENT_CREATED_FROM_ALERT',
+      targetType: 'incident',
+      targetId: result.id,
+      requestId,
+      metadata: {
+        alertId: alert.id,
+        alertTitle: alert.title,
+        incidentTitle: dto.title,
+        severity: incidentSeverity,
+      },
+    });
+
+    return result;
+  }
+}

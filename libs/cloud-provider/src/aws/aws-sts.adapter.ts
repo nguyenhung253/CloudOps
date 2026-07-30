@@ -123,6 +123,31 @@ export class AwsStsAdapter {
     };
   }
 
+  async getCallerIdentityWithStaticCredentials(
+    accessKeyId: string,
+    secretAccessKey: string,
+    region?: string,
+  ): Promise<CallerIdentity> {
+    const client = new STSClient({
+      region: region || process.env.AWS_REGION || 'ap-southeast-1',
+      credentials: {
+        accessKeyId,
+        secretAccessKey,
+      },
+    });
+    const response = await client.send(new GetCallerIdentityCommand({}));
+
+    if (!response.Account || !response.Arn || !response.UserId) {
+      throw new Error('GetCallerIdentity returned incomplete identity');
+    }
+
+    return {
+      accountId: response.Account,
+      arn: response.Arn,
+      userId: response.UserId,
+    };
+  }
+
   /**
    * Full connection check: AssumeRole → GetCallerIdentity → compare account ID.
    */
