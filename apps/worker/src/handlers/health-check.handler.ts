@@ -11,6 +11,7 @@ import {
   CloudProvider,
   JobType,
 } from '@prisma/client';
+import { NonRetryableJobError, RetryableJobError } from '@app/queue';
 import { decryptExternalId } from '@api/cloud-accounts/crypto/external-id.crypto';
 import { AuditLogsService } from '@api/audit-logs/audit-logs.service';
 import type {
@@ -90,39 +91,82 @@ export class HealthCheckHandler implements JobHandler {
 
     await updateProgress(80, 'Persisting connection check');
 
-    const nextStatus = result.success
-      ? CloudAccountStatus.CONNECTED
-      : CloudAccountStatus.ERROR;
     const checkedAt = new Date();
 
-    const [check] = await this.prisma.$transaction([
-      this.prisma.cloudConnectionCheck.create({
-        data: {
-          cloudAccountId: account.id,
-          success: result.success,
-          assumedRoleArn: result.assumedRoleArn ?? null,
-          callerAccountId: result.callerAccountId ?? null,
-          callerArn: result.callerArn ?? null,
-          errorCode: result.errorCode ?? null,
-          errorMessage: result.errorMessage ?? null,
+    if (result.success) {
+      // Connection succeeded — update status to CONNECTED
+      const [check] = await this.prisma.$transaction([
+        this.prisma.cloudConnectionCheck.create({
+          data: {
+            cloudAccountId: account.id,
+            success: true,
+            assumedRoleArn: result.assumedRoleArn ?? null,
+            callerAccountId: result.callerAccountId ?? null,
+            callerArn: result.callerArn ?? null,
+            durationMs: result.durationMs,
+            requestedBy: job.requestedBy,
+          },
+        }),
+        this.prisma.cloudAccount.update({
+          where: { id: account.id },
+          data: {
+            status: CloudAccountStatus.CONNECTED,
+            lastCheckedAt: checkedAt,
+            lastErrorCode: null,
+            lastErrorMessage: null,
+          },
+        }),
+      ]);
+
+      await this.auditLogsService.create({
+        actorUserId: job.requestedBy,
+        action: 'CLOUD_ACCOUNT_HEALTH_CHECK',
+        targetType: 'cloud_account',
+        targetId: account.id,
+        metadata: {
+          success: true,
+          jobId: job.id,
+          checkId: check.id,
           durationMs: result.durationMs,
-          requestedBy: job.requestedBy,
         },
-      }),
-      this.prisma.cloudAccount.update({
-        where: { id: account.id },
-        data: {
-          status: nextStatus,
-          lastCheckedAt: checkedAt,
-          lastErrorCode: result.success
-            ? null
-            : (result.errorCode ?? 'CONNECTION_FAILED'),
-          lastErrorMessage: result.success
-            ? null
-            : (result.errorMessage ?? 'Connection failed'),
+      });
+
+      await updateProgress(100, 'Health check passed');
+
+      return {
+        summary: {
+          success: true,
+          status: CloudAccountStatus.CONNECTED,
+          checkedAt,
+          durationMs: result.durationMs,
+          callerAccountId: result.callerAccountId ?? null,
+          checkId: check.id,
         },
-      }),
-    ]);
+      };
+    }
+
+    // Connection failed — classify whether retryable or permanent
+    const errorCode = result.errorCode ?? 'CONNECTION_FAILED';
+    const errorMessage = result.errorMessage ?? 'Connection failed';
+    const isPermanentFailure =
+      errorCode === 'InvalidClientTokenId' ||
+      errorCode === 'AccessDenied' ||
+      errorCode === 'AccessDeniedException' ||
+      errorCode === 'UnauthorizedException' ||
+      errorCode === 'UnrecognizedClientException' ||
+      errorCode === 'InvalidIdentityToken';
+
+    // Always record the connection check regardless
+    await this.prisma.cloudConnectionCheck.create({
+      data: {
+        cloudAccountId: account.id,
+        success: false,
+        errorCode: errorCode,
+        errorMessage: errorMessage,
+        durationMs: result.durationMs,
+        requestedBy: job.requestedBy,
+      },
+    });
 
     await this.auditLogsService.create({
       actorUserId: job.requestedBy,
@@ -130,32 +174,41 @@ export class HealthCheckHandler implements JobHandler {
       targetType: 'cloud_account',
       targetId: account.id,
       metadata: {
-        success: result.success,
+        success: false,
         jobId: job.id,
-        checkId: check.id,
-        errorCode: result.errorCode ?? null,
+        errorCode,
         durationMs: result.durationMs,
       },
     });
 
-    await updateProgress(100, result.success ? 'Health check passed' : 'Health check failed');
+    if (isPermanentFailure) {
+      // Permanent failure — update account status to ERROR, don't retry
+      await this.prisma.cloudAccount.update({
+        where: { id: account.id },
+        data: {
+          status: CloudAccountStatus.ERROR,
+          lastCheckedAt: checkedAt,
+          lastErrorCode: errorCode,
+          lastErrorMessage: errorMessage,
+        },
+      });
 
-    if (!result.success) {
-      const err = new Error(result.errorMessage ?? 'Health check failed');
-      (err as Error & { code?: string }).code =
-        result.errorCode ?? 'HEALTH_CHECK_FAILED';
-      throw err;
+      await updateProgress(100, `Health check failed permanently: ${errorCode}`);
+
+      throw new NonRetryableJobError(
+        `Health check permanently failed for account ${account.name}: ${errorMessage}`,
+        errorCode,
+      );
     }
 
-    return {
-      summary: {
-        success: true,
-        status: nextStatus,
-        checkedAt,
-        durationMs: result.durationMs,
-        callerAccountId: result.callerAccountId ?? null,
-        checkId: check.id,
-      },
-    };
+    // Transient failure (throttling, network, STS unavailable, etc.)
+    // Do NOT update account status — let the existing status persist.
+    // Rethrow as retryable so worker applies backoff and retries.
+    await updateProgress(100, `Health check transient failure: ${errorCode}`);
+
+    throw new RetryableJobError(
+      `Health check transient failure for account ${account.name}: ${errorMessage}`,
+      errorCode,
+    );
   }
 }
