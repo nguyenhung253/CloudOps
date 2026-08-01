@@ -15,6 +15,7 @@ import {
   CheckCircleFilled,
   WarningFilled,
   InfoCircleFilled,
+  ExclamationCircleFilled,
   ClockCircleOutlined,
   ClusterOutlined,
 } from '@ant-design/icons';
@@ -157,10 +158,11 @@ const Dashboard: React.FC = () => {
         const newActivities: ActivityItem[] = incidentsData.slice(0, 5).map((inc: any) => {
           const dt = new Date(inc.openedAt || inc.createdAt);
           const timeStr = `${String(dt.getHours()).padStart(2, '0')}:${String(dt.getMinutes()).padStart(2, '0')}`;
+          const cleanTitle = inc.title ? inc.title.replace(/^\[.*?\]\s*/, '') : (inc.ruleCode || 'System alert');
           return {
             id: inc.id,
             time: timeStr,
-            text: `Incident #${inc.incidentNumber || inc.id.slice(0, 6)}: ${inc.title}`,
+            text: `Incident #${inc.incidentNumber || inc.id.slice(0, 6)}: ${cleanTitle}`,
             status: inc.severity === 'CRITICAL' ? 'error' : inc.severity === 'HIGH' ? 'warning' : 'info',
           };
         });
@@ -334,9 +336,9 @@ const Dashboard: React.FC = () => {
   }[systemHealthStatus];
 
   const getAlertIcon = (level: string) => {
-    if (level === 'critical') return <CheckCircleFilled style={{ color: '#ff4d4f', fontSize: '16px' }} />;
-    if (level === 'warning') return <WarningFilled style={{ color: '#faad14', fontSize: '16px' }} />;
-    return <InfoCircleFilled style={{ color: '#1890ff', fontSize: '16px' }} />;
+    if (level === 'critical' || level === 'sev1') return <ExclamationCircleFilled style={{ color: '#ff4d4f', fontSize: '18px' }} />;
+    if (level === 'warning' || level === 'sev2' || level === 'high') return <WarningFilled style={{ color: '#ff7a45', fontSize: '18px' }} />;
+    return <InfoCircleFilled style={{ color: '#1890ff', fontSize: '18px' }} />;
   };
 
   const attentionCount = stats.degradedCount + stats.unhealthyCount;
@@ -551,14 +553,14 @@ const Dashboard: React.FC = () => {
             title={
               <Space>
                 <BugOutlined style={{ color: '#ff4d4f' }} />
-                <span style={{ color: '#f1f5f9', fontWeight: 600 }}>Active Incidents (Rule Engine Dispatches)</span>
+                <span style={{ color: '#fff', fontWeight: 600 }}>Active Incidents (Rule Engine Dispatches)</span>
                 <Badge count={incidents.length} overflowCount={99} style={{ backgroundColor: '#ff4d4f' }} />
               </Space>
             }
-            style={{ borderRadius: 8, marginBottom: 20, background: '#121824', border: '1px solid rgba(255, 255, 255, 0.08)', boxShadow: '0 4px 12px rgba(0, 0, 0, 0.25)' }}
+            style={{ borderRadius: 8, marginBottom: 20, background: '#1c1c1c', border: '1px solid #262626' }}
           >
             {incidents.length === 0 ? (
-              <div style={{ padding: '24px', textAlign: 'center', color: '#64748b' }}>
+              <div style={{ padding: '24px', textAlign: 'center', color: '#8c8c8c' }}>
                 <CheckCircleOutlined style={{ fontSize: 32, color: '#52c41a', marginBottom: 8 }} />
                 <div>No active incidents detected. All system health rules passing.</div>
               </div>
@@ -567,20 +569,20 @@ const Dashboard: React.FC = () => {
                 dataSource={incidents}
                 renderItem={item => (
                   <List.Item
-                    style={{ background: '#1a2234', marginBottom: 8, padding: '12px 16px', borderRadius: 6, borderLeft: item.severity === 'CRITICAL' ? '4px solid #ff4d4f' : '4px solid #faad14' }}
+                    style={{ background: '#141414', marginBottom: 8, padding: '12px 16px', borderRadius: 6, border: '1px solid #262626', borderLeft: item.severity === 'CRITICAL' || item.severity === 'SEV1' ? '4px solid #ff4d4f' : '4px solid #ff7a45' }}
                   >
                     <List.Item.Meta
                       avatar={getAlertIcon(item.severity?.toLowerCase())}
                       title={
-                        <Space wrap>
+                        <Space wrap size={8}>
                           <span style={{ color: '#fff', fontWeight: 600 }}>#{item.incidentNumber || item.id.slice(0, 8)}</span>
-                          <Tag color={item.severity === 'CRITICAL' ? 'red' : 'orange'}>{item.severity}</Tag>
-                          <span style={{ color: '#e2e8f0' }}>{item.title}</span>
+                          <Tag color={item.severity === 'CRITICAL' || item.severity === 'SEV1' ? 'red' : 'orange'}>{item.severity}</Tag>
+                          <span style={{ color: '#d4d4d4', fontWeight: 500 }}>{item.title}</span>
                         </Space>
                       }
                       description={
-                        <div style={{ color: '#94a3b8', fontSize: 12 }}>
-                          {item.description} · <span style={{ color: '#38bdf8' }}>Created by {item.createdByType === 'SYSTEM' ? 'CloudOps Rule Engine' : (item.creator?.name || 'User')}</span>
+                        <div style={{ color: '#8c8c8c', fontSize: 12, marginTop: 4 }}>
+                          Created by <span style={{ color: '#ff7a45' }}>{item.createdByType === 'SYSTEM' ? 'CloudOps Rule Engine' : (item.creator?.name || 'User')}</span>
                         </div>
                       }
                     />
@@ -600,11 +602,11 @@ const Dashboard: React.FC = () => {
           <Card
             title={
               <Space>
-                <PlayCircleOutlined style={{ color: '#38bdf8' }} />
-                <span style={{ color: '#f1f5f9', fontWeight: 600 }}>Quick Operations</span>
+                <PlayCircleOutlined style={{ color: '#ff7a45' }} />
+                <span style={{ color: '#fff', fontWeight: 600 }}>Quick Operations</span>
               </Space>
             }
-            style={{ borderRadius: 8, marginBottom: 20, background: '#121824', border: '1px solid rgba(255, 255, 255, 0.08)', boxShadow: '0 4px 12px rgba(0, 0, 0, 0.25)' }}
+            style={{ borderRadius: 8, marginBottom: 20, background: '#1c1c1c', border: '1px solid #262626' }}
           >
             <Space direction="vertical" style={{ width: '100%' }} size="middle">
               <Button
@@ -615,14 +617,13 @@ const Dashboard: React.FC = () => {
                 loading={isExecutingJob}
                 onClick={handleTriggerEvent}
                 style={{
-                  background: '#ea580c',
-                  borderColor: '#ea580c',
+                  background: '#ff5722',
+                  borderColor: '#ff5722',
                   height: 'auto',
                   padding: '10px 14px',
                   whiteSpace: 'normal',
                   textAlign: 'center',
                   fontWeight: 600,
-                  boxShadow: '0 4px 12px rgba(234, 88, 12, 0.3)',
                 }}
               >
                 Run Diagnostic Job
@@ -633,7 +634,7 @@ const Dashboard: React.FC = () => {
                 block
                 disabled={isExecutingJob}
                 onClick={handleS3UploadEvent}
-                style={{ background: '#1a2234', borderColor: 'rgba(255,255,255,0.12)', color: '#d9d9d9', whiteSpace: 'normal', height: 'auto', padding: '8px 12px' }}
+                style={{ background: '#141414', borderColor: '#262626', color: '#d9d9d9', whiteSpace: 'normal', height: 'auto', padding: '8px 12px' }}
               >
                 Run AWS Resource Sync
               </Button>
@@ -643,18 +644,17 @@ const Dashboard: React.FC = () => {
                 block
                 disabled={isExecutingJob}
                 onClick={handleRestartWorker}
-                style={{ background: '#1a2234', borderColor: 'rgba(255,255,255,0.12)', color: '#d9d9d9', whiteSpace: 'normal', height: 'auto', padding: '8px 12px' }}
+                style={{ background: '#141414', borderColor: '#262626', color: '#d9d9d9', whiteSpace: 'normal', height: 'auto', padding: '8px 12px' }}
               >
                 Check Worker Pool Status
               </Button>
-
 
               <Button
                 icon={<SyncOutlined />}
                 block
                 disabled={isExecutingJob}
                 onClick={() => loadDashboardData()}
-                style={{ background: '#1a2234', borderColor: 'rgba(255,255,255,0.12)', color: '#d9d9d9', whiteSpace: 'normal', height: 'auto', padding: '8px 12px' }}
+                style={{ background: '#141414', borderColor: '#262626', color: '#d9d9d9', whiteSpace: 'normal', height: 'auto', padding: '8px 12px' }}
               >
                 Sync All Telemetry & Metrics
               </Button>
@@ -665,23 +665,25 @@ const Dashboard: React.FC = () => {
           <Card
             title={
               <Space>
-                <CodeOutlined style={{ color: '#4ade80' }} />
-                <span style={{ color: '#f1f5f9', fontWeight: 600 }}>Recent System Activities</span>
+                <CodeOutlined style={{ color: '#ff7a45' }} />
+                <span style={{ color: '#fff', fontWeight: 600 }}>Recent System Activities</span>
               </Space>
             }
-            style={{ borderRadius: 8, background: '#121824', border: '1px solid rgba(255, 255, 255, 0.08)', boxShadow: '0 4px 12px rgba(0, 0, 0, 0.25)' }}
+            style={{ borderRadius: 8, background: '#1c1c1c', border: '1px solid #262626' }}
           >
             <List
               size="small"
               dataSource={activities}
               renderItem={item => (
-                <List.Item style={{ padding: '8px 0', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
-                  <Space style={{ width: '100%', justifyContent: 'space-between' }}>
-                    <Space wrap>
-                      <Tag color={item.status === 'error' ? 'red' : item.status === 'warning' ? 'orange' : 'green'}>{item.time}</Tag>
-                      <span style={{ color: '#cbd5e1', fontSize: 13 }}>{item.text}</span>
-                    </Space>
-                  </Space>
+                <List.Item style={{ padding: '8px 10px', marginBottom: 6, background: '#141414', borderRadius: 6, border: '1px solid #262626' }}>
+                  <div style={{ display: 'flex', alignItems: 'flex-start', gap: '8px', width: '100%' }}>
+                    <Tag style={{ backgroundColor: 'rgba(255, 122, 69, 0.12)', color: '#ff7a45', border: '1px solid rgba(255, 122, 69, 0.3)', margin: 0, fontFamily: 'monospace', fontSize: '11px', flexShrink: 0, marginTop: 2 }}>
+                      {item.time}
+                    </Tag>
+                    <span style={{ color: '#d4d4d4', fontSize: 13, lineHeight: '1.4', flex: 1, minWidth: 0, wordBreak: 'break-word' }}>
+                      {item.text}
+                    </span>
+                  </div>
                 </List.Item>
               )}
             />

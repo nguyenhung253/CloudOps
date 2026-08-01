@@ -102,7 +102,7 @@ const Login: React.FC = () => {
       <Card className={styles.loginCard} bordered={false}>
         <div className={styles.loginHeader}>
           <div className={styles.logoWrapper}>
-            <CloudServerOutlined className={styles.logoIcon} />
+            <img src="/logo.png" alt="CloudOps Logo" className={styles.logoIcon} style={{ width: '40px', height: '40px', objectFit: 'contain' }} />
           </div>
           <h2 className={styles.title}>CloudOps</h2>
           <p className={styles.subtitle}>AWS Cloud Operations & Incident Management</p>

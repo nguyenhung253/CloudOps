@@ -1,10 +1,11 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { Card, Table, Tag, Button, Space, Modal, Form, Input, Select, Tabs, message } from 'antd';
+import { Card, Table, Tag, Button, Space, Modal, Form, Input, Select, Tabs, message, Tooltip } from 'antd';
 import {
   UserOutlined,
   LockOutlined,
   UnlockOutlined,
   PlusOutlined,
+  EditOutlined,
 } from '@ant-design/icons';
 import { PageContainer } from '@ant-design/pro-components';
 import { request } from '@umijs/max';
@@ -155,23 +156,22 @@ const Users: React.FC = () => {
       key: 'action',
       render: (_: any, record: ApiUser) => (
         <Space size="small">
-          <Button
-            size="small"
-            type="text"
-            icon={record.status === 'ACTIVE' ? <LockOutlined style={{ color: '#faad14' }} /> : <UnlockOutlined style={{ color: '#52c41a' }} />}
-            onClick={() => toggleLock(record.id, record.status)}
-            disabled={currentUserRole !== 'admin'}
-          >
-            {record.status === 'ACTIVE' ? 'Lock' : 'Unlock'}
-          </Button>
-          <Button
-            size="small"
-            type="link"
-            onClick={() => openRoleModal(record)}
-            disabled={currentUserRole !== 'admin'}
-          >
-            Role
-          </Button>
+          <Tooltip title={record.status === 'ACTIVE' ? 'Lock user' : 'Unlock user'}>
+            <Button
+              size="small"
+              icon={record.status === 'ACTIVE' ? <LockOutlined style={{ color: '#faad14' }} /> : <UnlockOutlined style={{ color: '#52c41a' }} />}
+              onClick={() => toggleLock(record.id, record.status)}
+              disabled={currentUserRole !== 'admin'}
+            />
+          </Tooltip>
+          <Tooltip title="Change role">
+            <Button
+              size="small"
+              icon={<EditOutlined />}
+              onClick={() => openRoleModal(record)}
+              disabled={currentUserRole !== 'admin'}
+            />
+          </Tooltip>
         </Space>
       ),
     },
@@ -181,34 +181,33 @@ const Users: React.FC = () => {
     <PageContainer
       title={<span style={{ color: '#fff', fontSize: '24px', fontWeight: 600 }}>Users & Access Control</span>}
       subTitle={<span style={{ color: '#8c8c8c' }}>Manage operator accounts, RBAC roles, and account security</span>}
+      extra={
+        <Button
+          type="primary"
+          icon={<PlusOutlined />}
+          onClick={() => {
+            if (currentUserRole !== 'admin') {
+              message.error('Bạn cần quyền Admin để tạo người dùng!');
+              return;
+            }
+            setIsCreateOpen(true);
+          }}
+          disabled={currentUserRole !== 'admin'}
+        >
+          Add User
+        </Button>
+      }
     >
       <Tabs activeKey={activeTab} onChange={setActiveTab} style={{ color: '#8c8c8c' }}>
         <Tabs.TabPane tab="User Directory" key="1">
-          <Card
-            bordered={false}
-            extra={
-              <Button
-                type="primary"
-                icon={<PlusOutlined />}
-                onClick={() => {
-                  if (currentUserRole !== 'admin') {
-                    message.error('Bạn cần quyền Admin để tạo người dùng!');
-                    return;
-                  }
-                  setIsCreateOpen(true);
-                }}
-                disabled={currentUserRole !== 'admin'}
-              >
-                Add User
-              </Button>
-            }
-          >
+          <Card bordered={false}>
             <Table
               columns={userColumns}
               dataSource={users}
               rowKey="id"
               loading={loading}
               pagination={false}
+              size="middle"
               style={{ backgroundColor: '#1c1c1c' }}
             />
           </Card>

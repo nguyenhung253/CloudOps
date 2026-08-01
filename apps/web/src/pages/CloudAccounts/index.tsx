@@ -466,11 +466,12 @@ const CloudAccounts: React.FC = () => {
     }
   };
 
-  const columns = [
+  const columns: any[] = [
     {
       title: 'Account Name',
       dataIndex: 'name',
       key: 'name',
+      width: 220,
       render: (text: string, record: CloudAccount) => (
         <Space direction="vertical" size={0}>
           <strong style={{ color: '#fff', fontSize: '14px' }}>{text}</strong>
@@ -482,12 +483,14 @@ const CloudAccounts: React.FC = () => {
       title: 'Provider',
       dataIndex: 'provider',
       key: 'provider',
+      width: 100,
       render: (text: string) => <Tag color="orange" style={{ fontWeight: 600 }}>{text}</Tag>,
     },
     {
       title: 'AWS Account ID',
       dataIndex: 'providerAccountId',
       key: 'providerAccountId',
+      width: 160,
       render: (text: string) => (
         <code style={{ color: '#ff7a45', fontFamily: 'monospace', fontSize: '13px' }}>
           {maskAccountId(text)}
@@ -498,12 +501,14 @@ const CloudAccounts: React.FC = () => {
       title: 'Status',
       dataIndex: 'status',
       key: 'status',
+      width: 140,
       render: (status: string) => getStatusTag(status),
     },
     {
       title: 'Regions',
       dataIndex: 'regions',
       key: 'regions',
+      width: 150,
       render: (regions: CloudAccountRegion[]) => (
         <Space size={[0, 4]} wrap>
           {regions.filter(r => r.isEnabled).map(r => (
@@ -517,6 +522,7 @@ const CloudAccounts: React.FC = () => {
     {
       title: 'Resources',
       key: 'resources',
+      width: 160,
       render: (_: any, record: CloudAccount) => {
         if (record.status !== 'CONNECTED') {
           return <span style={{ color: '#555' }}>-</span>;
@@ -573,6 +579,7 @@ const CloudAccounts: React.FC = () => {
       title: 'Last Sync',
       dataIndex: 'lastCheckedAt',
       key: 'lastCheckedAt',
+      width: 120,
       render: (t: string | null) => (
         <span style={{ color: '#8c8c8c', fontSize: '13px' }}>
           {formatRelativeTime(t)}
@@ -582,50 +589,31 @@ const CloudAccounts: React.FC = () => {
     {
       title: 'Actions',
       key: 'actions',
+      width: 130,
       render: (_: any, record: CloudAccount) => {
         const isWritable = userRole === 'admin' || userRole === 'operator';
         const activeSync = activeSyncJobs[record.id];
         const isJobRunning = activeSync && ['PENDING', 'QUEUED', 'RUNNING', 'RETRYING'].includes(activeSync.status);
         return (
-          <Space size="middle">
-            <Button 
-              size="small" 
-              icon={<EyeOutlined />}
-              onClick={() => {
-                setSelectedAccount(record);
-                setDetailsModalOpen(true);
-              }}
-            >
-              Details
-            </Button>
-            <Button 
-              size="small" 
-              type="primary" 
-              ghost
-              icon={<SyncOutlined spin={syncingId === record.id || isJobRunning} />}
-              onClick={() => handleSync(record.id)}
-              disabled={testingId !== null || syncingId !== null || record.status === 'DISABLED' || !isWritable || isJobRunning}
-            >
-              Sync
-            </Button>
-            <Button 
-              size="small" 
-              type="primary"
-              ghost
-              icon={<SyncOutlined spin={testingId === record.id} />}
-              onClick={() => handleTestConnection(record.id)}
-              disabled={testingId !== null || syncingId !== null || record.status === 'DISABLED' || !isWritable || isJobRunning}
-            >
-              Test
-            </Button>
-            <Button 
-              size="small" 
-              icon={<EditOutlined />}
-              onClick={() => handleOpenDrawer(record)}
-              disabled={!isWritable || isJobRunning}
-            >
-              Edit
-            </Button>
+          <Space size="small">
+            <Tooltip title="View details">
+              <Button 
+                size="small" 
+                icon={<EyeOutlined />}
+                onClick={() => {
+                  setSelectedAccount(record);
+                  setDetailsModalOpen(true);
+                }}
+              />
+            </Tooltip>
+            <Tooltip title="Edit account">
+              <Button 
+                size="small" 
+                icon={<EditOutlined />}
+                onClick={() => handleOpenDrawer(record)}
+                disabled={!isWritable || isJobRunning}
+              />
+            </Tooltip>
             <Popconfirm
               title="Bạn có chắc chắn muốn xóa tài khoản cloud này?"
               onConfirm={() => handleDelete(record.id)}
@@ -633,14 +621,14 @@ const CloudAccounts: React.FC = () => {
               cancelText="Hủy"
               disabled={!isWritable}
             >
-              <Button 
-                size="small" 
-                danger 
-                icon={<DeleteOutlined />}
-                disabled={!isWritable}
-              >
-                Delete
-              </Button>
+              <Tooltip title="Delete account">
+                <Button 
+                  size="small" 
+                  danger 
+                  icon={<DeleteOutlined />}
+                  disabled={!isWritable}
+                />
+              </Tooltip>
             </Popconfirm>
           </Space>
         );
@@ -710,7 +698,7 @@ const CloudAccounts: React.FC = () => {
           loading={loading}
           pagination={{ pageSize: 10 }}
           style={{ backgroundColor: '#1c1c1c' }}
-          scroll={{ x: 'max-content' }}
+          scroll={{ x: 1180 }}
         />
       </Card>
 
