@@ -277,6 +277,28 @@ export class ResourcesService {
 
     await onProgress?.(5, 'Creating sync snapshot');
 
+    // Clean up any orphaned RUNNING snapshots from a previous worker crash.
+    // A snapshot stuck in RUNNING for >2 hours means the worker died mid-sync.
+    const orphanCutoff = new Date(Date.now() - 2 * 60 * 60 * 1000);
+    const orphaned = await this.prisma.resourceSyncSnapshot.updateMany({
+      where: {
+        cloudAccountId: account.id,
+        status: ResourceSyncStatus.RUNNING,
+        startedAt: { lt: orphanCutoff },
+      },
+      data: {
+        status: ResourceSyncStatus.FAILED,
+        finishedAt: new Date(),
+        errorCode: 'WORKER_LOST',
+        errorMessage: 'Worker process lost before sync could complete',
+      },
+    });
+    if (orphaned.count > 0) {
+      this.logger.warn(
+        `Cleaned up ${orphaned.count} orphaned RUNNING snapshot(s) for account ${account.id}`,
+      );
+    }
+
     const startedAt = new Date();
     const snapshot = await this.prisma.resourceSyncSnapshot.create({
       data: {
@@ -304,16 +326,45 @@ export class ResourcesService {
         roleSessionName: `cloudops-sync-${account.id.slice(0, 8)}`,
       });
     } catch (error: any) {
+      const message = error?.message ?? 'Failed to assume IAM role';
+      const code = error?.code ?? error?.name ?? 'ASSUME_ROLE_FAILED';
+
+      // Classify whether this is a transient or permanent IAM failure
+      const isTransient =
+        code === 'ThrottlingException' ||
+        code === 'Throttling' ||
+        code === 'ECONNRESET' ||
+        code === 'ETIMEDOUT' ||
+        code === 'ServiceUnavailableException' ||
+        code === 'ServiceUnavailable' ||
+        code === 'RequestLimitExceeded' ||
+        (error?.statusCode && (error.statusCode === 429 || error.statusCode === 503 || error.statusCode === 504));
+
       const finishedAt = new Date();
-      const failed = await this.prisma.resourceSyncSnapshot.update({
+      const durationMs = finishedAt.getTime() - startedAt.getTime();
+
+      await this.prisma.resourceSyncSnapshot.update({
         where: { id: snapshot.id },
         data: {
-          status: ResourceSyncStatus.FAILED,
-          finishedAt,
-          durationMs: finishedAt.getTime() - startedAt.getTime(),
-          errorCode: 'ASSUME_ROLE_FAILED',
-          errorMessage: error?.message ?? 'Failed to assume IAM role',
+          status: isTransient ? ResourceSyncStatus.RUNNING : ResourceSyncStatus.FAILED,
+          finishedAt: isTransient ? null : finishedAt,
+          durationMs: isTransient ? null : durationMs,
+          errorCode: code,
+          errorMessage: message,
         },
+      });
+
+      if (isTransient) {
+        // Re-throw so worker's classifyJobError picks up the retryable code.
+        // Snapshot stays RUNNING — worker retries with backoff.
+        const transientError = new Error(message);
+        (transientError as any).code = code;
+        (transientError as any).name = 'TransientAssumeRoleError';
+        throw transientError;
+      }
+
+      const failed = await this.prisma.resourceSyncSnapshot.findUniqueOrThrow({
+        where: { id: snapshot.id },
       });
 
       return {
