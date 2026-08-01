@@ -162,20 +162,38 @@ export class JobsService {
     const payload: Prisma.InputJsonValue = (dto.payload ?? {}) as Prisma.InputJsonValue;
 
     // 1) Persist Job before touching Redis
-    const job = await this.prisma.job.create({
-      data: {
-        type: dto.type,
-        status: JobStatus.PENDING,
-        cloudAccountId: cloudAccountId ?? null,
-        resourceId: dto.resourceId ?? null,
-        requestedBy: actor.id,
-        payload,
-        idempotencyKey: dto.idempotencyKey ?? null,
-        priority: dto.priority ?? 0,
-        maxAttempts: dto.maxAttempts ?? 3,
-        progress: 0,
-      },
-    });
+    let job;
+    try {
+      job = await this.prisma.job.create({
+        data: {
+          type: dto.type,
+          status: JobStatus.PENDING,
+          cloudAccountId: cloudAccountId ?? null,
+          resourceId: dto.resourceId ?? null,
+          requestedBy: actor.id,
+          payload,
+          idempotencyKey: dto.idempotencyKey ?? null,
+          priority: dto.priority ?? 0,
+          maxAttempts: dto.maxAttempts ?? 3,
+          progress: 0,
+        },
+      });
+    } catch (error: unknown) {
+      if (
+        error &&
+        typeof error === 'object' &&
+        'code' in error &&
+        (error as { code: string }).code === 'P2002'
+      ) {
+        // Race: another request inserted the same idempotencyKey between our
+        // findUnique check and create. Return the existing job.
+        const existing = await this.prisma.job.findUniqueOrThrow({
+          where: { idempotencyKey: dto.idempotencyKey! },
+        });
+        return { job: this.toPublic(existing), accepted: true };
+      }
+      throw error;
+    }
 
     await this.addEvent(job.id, 'JOB_CREATED', 'Job created and waiting to enqueue', 0, {
       type: job.type,
@@ -374,8 +392,11 @@ export class JobsService {
     if (!job) {
       throw new NotFoundException('Job not found');
     }
+    if (job.status === JobStatus.SUCCEEDED) {
+      throw new BadRequestException('Cannot re-enqueue a job that has already completed successfully');
+    }
     if (job.status !== JobStatus.PENDING) {
-      throw new BadRequestException('Only PENDING jobs can be re-enqueued');
+      throw new BadRequestException(`Only PENDING jobs can be re-enqueued, current status: ${job.status}`);
     }
 
     const enqueueError = await this.tryEnqueue(job);

@@ -51,7 +51,9 @@ export class WorkerHeartbeatService implements OnModuleInit, OnModuleDestroy {
 
   setShutdownStatus() {
     this.status = 'SHUTTING_DOWN';
-    this.sendHeartbeat().catch(() => {});
+    this.sendHeartbeat().catch((err) => {
+      this.logger.warn(`Failed to send shutdown heartbeat: ${err.message}`);
+    });
   }
 
   private async sendHeartbeat() {
@@ -86,6 +88,11 @@ export class WorkerHeartbeatService implements OnModuleInit, OnModuleDestroy {
       this.timer = null;
     }
     this.status = 'STOPPED';
-    await this.sendHeartbeat();
+    try {
+      await this.sendHeartbeat();
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      this.logger.warn(`Failed to send final STOPPED heartbeat: ${msg}`);
+    }
   }
 }

@@ -72,9 +72,13 @@ export class WorkerConsumer implements OnModuleInit, OnModuleDestroy {
     this.heartbeat.setShutdownStatus();
 
     if (this.worker) {
-      // Pause worker first so no new jobs are picked up, then close safely
+      // Pause first so no new jobs are picked up
       await this.worker.pause();
-      await this.worker.close(true);
+      this.logger.log(`Worker paused; waiting for in-flight jobs to complete...`);
+
+      // Close without force — drain in-flight jobs, then ack/nack properly.
+      // BullMQ will retry any jobs that were mid-processing if needed.
+      await this.worker.close();
       this.logger.log(`BullMQ worker closed gracefully.`);
     }
 

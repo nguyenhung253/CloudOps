@@ -50,7 +50,7 @@ export class MetricCollectionHandler implements JobHandler {
   }
 
   async handle(ctx: JobHandlerContext): Promise<JobHandlerResult> {
-    const { job, updateProgress, isCancelled } = ctx;
+    const { job, updateProgress, isCancelled, abortSignal } = ctx;
     const payload = (job.payload ?? {}) as {
       resourceId?: string;
       cloudAccountId?: string;
@@ -121,6 +121,9 @@ export class MetricCollectionHandler implements JobHandler {
     for (let i = 0; i < targetResources.length; i++) {
       if (await isCancelled()) {
         throw new BadRequestException('Job was cancelled during metric collection');
+      }
+      if (abortSignal.aborted) {
+        throw new BadRequestException('Job was timed out during metric collection');
       }
 
       const resource = targetResources[i];
