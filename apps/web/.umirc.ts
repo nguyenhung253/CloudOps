@@ -27,6 +27,11 @@ export default defineConfig({
       layout: false,
     },
     {
+      path: '/reset-password',
+      component: './Login/ResetPassword',
+      layout: false,
+    },
+    {
       name: 'Overview',
       path: '/dashboard',
       component: './Dashboard',
