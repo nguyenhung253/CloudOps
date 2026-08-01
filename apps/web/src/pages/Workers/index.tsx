@@ -30,7 +30,8 @@ const Workers: React.FC = () => {
     setLoading(true);
     try {
       const res = await request<{ data: WorkerInfo[] }>('/api/v1/workers');
-      setWorkers(res.data ?? []);
+      const list = (res as any)?.data?.data ?? (res as any)?.data ?? [];
+      setWorkers(Array.isArray(list) ? list : []);
     } catch {
       // API might not be ready yet
     } finally {

@@ -1,198 +1,177 @@
-import React, { useState, useEffect } from 'react';
-import { Card, Row, Col, Progress, Table, Tag, List, Badge, Switch, Space, message } from 'antd';
-import { 
-  DashboardOutlined, 
-  NodeIndexOutlined, 
-  DesktopOutlined, 
+import React, { useEffect, useState, useCallback } from 'react';
+import { Card, Row, Col, Progress, Table, List, Badge, Space, Tag, Typography } from 'antd';
+import {
+  DashboardOutlined,
+  NodeIndexOutlined,
   SwapOutlined,
-  SyncOutlined,
-  CompassOutlined
+  CompassOutlined,
+  ThunderboltOutlined,
 } from '@ant-design/icons';
 import { PageContainer } from '@ant-design/pro-components';
+import { request } from '@umijs/max';
 
-interface Process {
-  pid: number;
-  name: string;
-  cpu: number;
-  mem: number;
-  status: 'running' | 'sleeping';
+interface TelemetryData {
+  cpu: { available: boolean; current: number | null; history: number[] };
+  network: { available: boolean; inBytes: number | null; outBytes: number | null; formatted: string };
+  memory: { available: boolean; reason: string; formatted: string };
 }
 
-interface Container {
-  id: string;
-  name: string;
-  image: string;
+interface QueueSummary {
+  database: {
+    PENDING: number;
+    QUEUED: number;
+    RUNNING: number;
+    SUCCEEDED: number;
+    FAILED: number;
+    total: number;
+  };
+  queue: {
+    name: string;
+    waiting: number;
+    active: number;
+    completed: number;
+    failed: number;
+    delayed: number;
+  };
+}
+
+interface WorkerInfo {
+  workerId: string;
   status: string;
-  ports: string;
+  activeJobs: number;
+  isAlive: boolean;
 }
 
 const Monitoring: React.FC = () => {
-  const [cpuVal, setCpuVal] = useState(42);
-  const [memVal, setMemVal] = useState(64);
-  const [diskVal, setDiskVal] = useState(52);
-  const [netIn, setNetIn] = useState(12.4);
-  const [netOut, setNetOut] = useState(8.7);
-  const [autoRefresh, setAutoRefresh] = useState(true);
+  const [telemetry, setTelemetry] = useState<TelemetryData | null>(null);
+  const [queue, setQueue] = useState<QueueSummary | null>(null);
+  const [workers, setWorkers] = useState<WorkerInfo[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  // Background processes data
-  const [processes, setProcesses] = useState<Process[]>([
-    { pid: 3821, name: 'pm2-workers-pool', cpu: 12.4, mem: 8.5, status: 'running' },
-    { pid: 3844, name: 'bullmq-redis-listener', cpu: 6.2, mem: 4.1, status: 'running' },
-    { pid: 4102, name: 'cloudops-rule-evaluator', cpu: 15.5, mem: 10.3, status: 'running' },
-    { pid: 4892, name: 'aws-sns-event-adapter', cpu: 2.8, mem: 1.1, status: 'sleeping' },
-    { pid: 5121, name: 'nginx-api-gateway', cpu: 0.8, mem: 1.2, status: 'running' },
-  ]);
+  const fetchAll = useCallback(async () => {
+    try {
+      const [tRes, qRes, wRes] = await Promise.all([
+        request('/api/v1/dashboard/telemetry'),
+        request('/api/v1/queues/summary'),
+        request('/api/v1/workers'),
+      ]);
 
-  // Containers
-  const containers: Container[] = [
-    { id: 'c3f29b4e182a', name: 'cloudops-bullmq-worker', image: 'node:18-alpine', status: 'Up 4 hours', ports: '8080/tcp' },
-    { id: 'f92b4928fa8d', name: 'cloudops-redis-queue', image: 'redis:7.0-alpine', status: 'Up 12 hours', ports: '6379/tcp' },
-    { id: 'a88f19da218b', name: 'cloudops-node-backend', image: 'node:18-alpine', status: 'Up 12 hours', ports: '8000/tcp' },
-  ];
+      const tel = (tRes as any)?.data ?? (tRes as any);
+      setTelemetry(tel);
 
-  // Auto Telemetry Simulation
+      const q = (qRes as any)?.data ?? (qRes as any);
+      setQueue(q);
+
+      const wList = (wRes as any)?.data?.data ?? (wRes as any)?.data ?? [];
+      setWorkers(Array.isArray(wList) ? wList : []);
+    } catch {
+      // keep previous data on error
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
-    if (!autoRefresh) return;
+    fetchAll();
+    const timer = setInterval(fetchAll, 15_000);
+    return () => clearInterval(timer);
+  }, [fetchAll]);
 
-    const interval = setInterval(() => {
-      // Simulate CPU and RAM fluctuation
-      setCpuVal(prev => {
-        const delta = Math.floor(Math.random() * 15) - 7;
-        const next = prev + delta;
-        return next > 95 ? 95 : next < 15 ? 15 : next;
-      });
+  const cpuVal = telemetry?.cpu?.current ?? null;
+  const cpuHistory = telemetry?.cpu?.history ?? [];
+  const network = telemetry?.network;
+  const memory = telemetry?.memory;
 
-      setMemVal(prev => {
-        const delta = Math.floor(Math.random() * 5) - 2;
-        const next = prev + delta;
-        return next > 90 ? 90 : next < 55 ? 55 : next;
-      });
+  const aliveWorkers = workers.filter((w) => w.isAlive).length;
+  const queueWaiting = queue?.queue?.waiting ?? 0;
+  const queueActive = queue?.queue?.active ?? 0;
+  const dbTotalJobs = queue?.database?.total ?? 0;
+  const dbSucceeded = queue?.database?.SUCCEEDED ?? 0;
+  const dbFailed = queue?.database?.FAILED ?? 0;
 
-      // Network fluctuation
-      setNetIn(parseFloat((Math.random() * 20 + 5).toFixed(1)));
-      setNetOut(parseFloat((Math.random() * 15 + 3).toFixed(1)));
-
-      // Process stats updates
-      setProcesses(prev => 
-        prev.map(p => {
-          if (p.status === 'running') {
-            const cpuDelta = parseFloat((Math.random() * 4 - 2).toFixed(1));
-            return {
-              ...p,
-              cpu: Math.max(0.5, parseFloat((p.cpu + cpuDelta).toFixed(1)))
-            };
-          }
-          return p;
-        })
-      );
-    }, 3000);
-
-    return () => clearInterval(interval);
-  }, [autoRefresh]);
-
-  const processColumns = [
-    {
-      title: 'PID',
-      dataIndex: 'pid',
-      key: 'pid',
-      render: (t: number) => <code style={{ color: '#ff7a45' }}>{t}</code>,
-    },
-    {
-      title: 'Command / Service',
-      dataIndex: 'name',
-      key: 'name',
-      render: (t: string) => <strong style={{ color: '#fff' }}>{t}</strong>,
-    },
-    {
-      title: 'CPU Usage',
-      dataIndex: 'cpu',
-      key: 'cpu',
-      render: (t: number) => <span>{t}%</span>,
-    },
-    {
-      title: 'Memory Usage',
-      dataIndex: 'mem',
-      key: 'mem',
-      render: (t: number) => <span>{t}%</span>,
-    },
-    {
-      title: 'Status',
-      dataIndex: 'status',
-      key: 'status',
-      render: (status: string) => (
-        <Badge status={status === 'running' ? 'success' : 'default'} text={<span style={{ color: '#8c8c8c' }}>{status}</span>} />
-      ),
-    },
+  const workerColumns = [
+    { title: 'Worker ID', dataIndex: 'workerId', key: 'workerId', width: 180, render: (t: string) => <code style={{ color: '#ff7a45', fontSize: 12 }}>{t.replace('worker-', '').slice(0, 16)}</code> },
+    { title: 'Status', dataIndex: 'isAlive', key: 'status', render: (alive: boolean) => (
+      <Badge status={alive ? 'success' : 'error'} text={<span style={{ color: '#8c8c8c' }}>{alive ? 'ALIVE' : 'INACTIVE'}</span>} />
+    )},
+    { title: 'Active Jobs', dataIndex: 'activeJobs', key: 'activeJobs', render: (n: number) => <span style={{ color: '#fff' }}>{n}</span> },
   ];
+
+  const cpuHistoryColumn = cpuHistory.slice(-10);
 
   return (
     <PageContainer
       title={<span style={{ color: '#fff', fontSize: '24px', fontWeight: 600 }}>Telemetry & Metrics</span>}
-      subTitle={<span style={{ color: '#8c8c8c' }}>Redis Queue states, background workers, and CPU/RAM telemetry</span>}
-      extra={[
-        <Space key="refresh">
-          <span style={{ color: '#8c8c8c' }}>Auto Refresh (3s)</span>
-          <Switch checked={autoRefresh} onChange={setAutoRefresh} />
-        </Space>
-      ]}
+      subTitle={<span style={{ color: '#8c8c8c' }}>Real-time CPU, network, queue, and worker pool status</span>}
+      loading={loading}
     >
       {/* Real-time dials */}
       <Row gutter={[16, 16]}>
         <Col xs={24} md={8}>
-          <Card title="CPU Core Load" bordered={false} style={{ textAlign: 'center' }}>
-            <Progress 
-              type="dashboard" 
-              percent={cpuVal} 
+          <Card title="CPU Load" bordered={false} style={{ textAlign: 'center' }}>
+            <Progress
+              type="dashboard"
+              percent={cpuVal ?? 0}
               strokeColor={{ '0%': '#ff85c0', '50%': '#ff7a45', '100%': '#ff4d4f' }}
               trailColor="#222"
+              format={() => <span style={{ color: '#fff', fontSize: 24 }}>{cpuVal !== null ? `${cpuVal}%` : 'N/A'}</span>}
             />
             <div style={{ marginTop: 8, color: '#8c8c8c' }}>
-              8 Core Intel Xeon Processor
+              {telemetry?.cpu?.available ? 'AWS EC2 CloudWatch CPUUtilization' : 'No CPU data collected yet'}
             </div>
           </Card>
         </Col>
 
         <Col xs={24} md={8}>
-          <Card title="RAM Allocation" bordered={false} style={{ textAlign: 'center' }}>
-            <Progress 
-              type="dashboard" 
-              percent={memVal} 
+          <Card title="Memory (RAM)" bordered={false} style={{ textAlign: 'center' }}>
+            <Progress
+              type="dashboard"
+              percent={memory?.available ? 0 : 0}
               strokeColor={{ '0%': '#b37feb', '100%': '#722ed1' }}
               trailColor="#222"
+              format={() => <span style={{ color: '#8c8c8c', fontSize: 14 }}>{memory?.formatted ?? 'Loading…'}</span>}
             />
             <div style={{ marginTop: 8, color: '#8c8c8c' }}>
-              32 GB AWS EC2 Instance RAM
+              {memory?.available ? 'EC2 Memory (CloudWatch Agent)' : 'Requires CloudWatch Agent on instance'}
             </div>
           </Card>
         </Col>
 
         <Col xs={24} md={8}>
-          <Card title="Redis Memory store" bordered={false} style={{ textAlign: 'center' }}>
-            <Progress 
-              type="dashboard" 
-              percent={diskVal} 
+          <Card title="Job Queue" bordered={false} style={{ textAlign: 'center' }}>
+            <Progress
+              type="dashboard"
+              percent={dbTotalJobs > 0 ? Math.round((dbSucceeded / dbTotalJobs) * 100) : 0}
               strokeColor={{ '0%': '#36cfc9', '100%': '#13c2c2' }}
               trailColor="#222"
+              format={() => (
+                <div>
+                  <div style={{ color: '#52c41a', fontSize: 18 }}>{dbSucceeded}</div>
+                  <div style={{ color: '#8c8c8c', fontSize: 11 }}>succeeded / {dbTotalJobs} total</div>
+                </div>
+              )}
             />
             <div style={{ marginTop: 8, color: '#8c8c8c' }}>
-              BullMQ Max Memory Limit (512MB)
+              {dbFailed > 0 ? `${dbFailed} failed` : 'No failures'}
             </div>
           </Card>
         </Col>
       </Row>
 
-      {/* Network and Queues */}
-      <Row gutter={[16, 16]} style={{ marginTop: '20px' }}>
+      {/* Detail cards */}
+      <Row gutter={[16, 16]} style={{ marginTop: 20 }}>
         <Col xs={24} md={12}>
-          <Card title="Network & Redis Queue Metrics" bordered={false}>
+          <Card title="Network & Queue State" bordered={false}>
             <List itemLayout="horizontal">
               <List.Item style={{ borderBottom: '1px solid #2d2d2d' }}>
                 <List.Item.Meta
-                  avatar={<SwapOutlined style={{ color: '#1890ff', fontSize: '20px' }} />}
-                  title={<span style={{ color: '#fff' }}>Network Interface (eth0)</span>}
+                  avatar={<SwapOutlined style={{ color: '#1890ff', fontSize: 20 }} />}
+                  title={<span style={{ color: '#fff' }}>Network I/O</span>}
                   description={
                     <span style={{ color: '#8c8c8c' }}>
-                      Inbound: <strong style={{ color: '#fff' }}>{netIn} MB/s</strong> | Outbound: <strong style={{ color: '#fff' }}>{netOut} MB/s</strong>
+                      {network?.available
+                        ? network.formatted
+                        : 'No network data collected yet'}
                     </span>
                   }
                 />
@@ -200,11 +179,12 @@ const Monitoring: React.FC = () => {
 
               <List.Item style={{ borderBottom: '1px solid #2d2d2d' }}>
                 <List.Item.Meta
-                  avatar={<NodeIndexOutlined style={{ color: '#faad14', fontSize: '20px' }} />}
-                  title={<span style={{ color: '#fff' }}>Redis BullMQ Queue State</span>}
+                  avatar={<NodeIndexOutlined style={{ color: '#faad14', fontSize: 20 }} />}
+                  title={<span style={{ color: '#fff' }}>BullMQ Redis Queue</span>}
                   description={
                     <span style={{ color: '#8c8c8c' }}>
-                      Queued Events: <strong style={{ color: '#faad14' }}>5 waiting</strong> | Active Workers: <strong style={{ color: '#52c41a' }}>4 online</strong>
+                      Waiting: <strong style={{ color: '#faad14' }}>{queueWaiting}</strong>
+                      {' | '}Active: <strong style={{ color: '#52c41a' }}>{queueActive}</strong>
                     </span>
                   }
                 />
@@ -212,11 +192,13 @@ const Monitoring: React.FC = () => {
 
               <List.Item style={{ borderBottom: '1px solid #2d2d2d' }}>
                 <List.Item.Meta
-                  avatar={<CompassOutlined style={{ color: '#52c41a', fontSize: '20px' }} />}
-                  title={<span style={{ color: '#fff' }}>Active Cache Database Connections</span>}
+                  avatar={<CompassOutlined style={{ color: '#52c41a', fontSize: 20 }} />}
+                  title={<span style={{ color: '#fff' }}>Database Job Summary</span>}
                   description={
                     <span style={{ color: '#8c8c8c' }}>
-                      Redis Clients Pool Size: <strong style={{ color: '#fff' }}>32</strong> | Active Clients: <strong style={{ color: '#52c41a' }}>8 / 32</strong>
+                      Total: <strong style={{ color: '#fff' }}>{dbTotalJobs}</strong>
+                      {' | '}Succeeded: <strong style={{ color: '#52c41a' }}>{dbSucceeded}</strong>
+                      {' | '}Failed: <strong style={{ color: '#ff4d4f' }}>{dbFailed}</strong>
                     </span>
                   }
                 />
@@ -225,44 +207,64 @@ const Monitoring: React.FC = () => {
           </Card>
         </Col>
 
-        {/* Docker containers */}
+        {/* CPU History mini chart */}
         <Col xs={24} md={12}>
-          <Card title="PM2 / Docker Container Nodes" bordered={false}>
-            <List
-              dataSource={containers}
-              renderItem={(c) => (
-                <List.Item
-                  actions={[
-                    <Badge status="success" text={<span style={{ color: '#8c8c8c' }}>Running</span>} />
-                  ]}
-                  style={{ borderBottom: '1px solid #2d2d2d' }}
-                >
-                  <List.Item.Meta
-                    title={<span style={{ color: '#fff', fontWeight: 600 }}>{c.name}</span>}
-                    description={
-                      <div style={{ color: '#8c8c8c', fontSize: '12px' }}>
-                        Image: <code style={{ color: '#ff7a45' }}>{c.image}</code> | Ports: {c.ports}
+          <Card title="CPU History (last 10 points)" bordered={false}>
+            {cpuHistoryColumn.length === 0 ? (
+              <div style={{ color: '#8c8c8c', padding: 24, textAlign: 'center' }}>
+                No CPU data collected yet.
+                <br />
+                Run a METRIC_COLLECTION job to populate metrics.
+              </div>
+            ) : (
+              <Space direction="vertical" style={{ width: '100%' }}>
+                <div style={{ display: 'flex', alignItems: 'flex-end', gap: 6, height: 120 }}>
+                  {cpuHistoryColumn.map((val, i) => {
+                    const h = Math.max(4, (val / 100) * 120);
+                    const color = val > 85 ? '#ff4d4f' : val > 60 ? '#ff7a45' : '#36cfc9';
+                    return (
+                      <div key={i} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                        <span style={{ color: '#8c8c8c', fontSize: 10 }}>{val}%</span>
+                        <div style={{ width: '100%', height: h, backgroundColor: color, borderRadius: '3px 3px 0 0', minHeight: 2 }} />
                       </div>
-                    }
-                  />
-                </List.Item>
-              )}
-            />
+                    );
+                  })}
+                </div>
+                <Typography.Text style={{ color: '#595959', fontSize: 11, textAlign: 'center', display: 'block' }}>
+                  CPUUtilization % (5-min intervals from CloudWatch)
+                </Typography.Text>
+              </Space>
+            )}
           </Card>
         </Col>
       </Row>
 
-      {/* Linux Processes */}
-      <Row gutter={[16, 16]} style={{ marginTop: '20px' }}>
+      {/* Worker Pool */}
+      <Row gutter={[16, 16]} style={{ marginTop: 20 }}>
         <Col span={24}>
-          <Card title="Active Background Processes & PM2 Status" bordered={false}>
-            <Table 
-              columns={processColumns} 
-              dataSource={processes} 
-              rowKey="pid"
-              pagination={false}
-              style={{ backgroundColor: '#1c1c1c' }}
-            />
+          <Card
+            title={
+              <Space>
+                <ThunderboltOutlined style={{ color: '#ff5722' }} />
+                <span style={{ color: '#fff' }}>Active BullMQ Workers</span>
+                <Tag color="green">{aliveWorkers}/{workers.length} alive</Tag>
+              </Space>
+            }
+            bordered={false}
+          >
+            {workers.length === 0 ? (
+              <div style={{ color: '#8c8c8c', padding: 24, textAlign: 'center' }}>
+                No workers connected. Start a worker process to see data here.
+              </div>
+            ) : (
+              <Table
+                columns={workerColumns}
+                dataSource={workers}
+                rowKey="workerId"
+                pagination={false}
+                style={{ backgroundColor: '#1c1c1c' }}
+              />
+            )}
           </Card>
         </Col>
       </Row>
