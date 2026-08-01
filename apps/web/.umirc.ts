@@ -4,6 +4,7 @@ export default defineConfig({
   antd: {},
   access: {},
   model: {},
+  favicons: ['/logo.png'],
   initialState: {},
   request: {},
   proxy: {

@@ -1,11 +1,10 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { Card, Table, Tag, Badge, Space, Typography } from 'antd';
+import { Card, Table, Tag, Badge, Space, Typography, Tooltip } from 'antd';
 import {
   ThunderboltOutlined,
   CheckCircleOutlined,
   CloseCircleOutlined,
   PauseCircleOutlined,
-  ReloadOutlined,
 } from '@ant-design/icons';
 import { PageContainer } from '@ant-design/pro-components';
 import { request } from '@umijs/max';
@@ -21,6 +20,18 @@ interface WorkerInfo {
   startedAt: string;
   isAlive: boolean;
 }
+
+const formatWorkerId = (id: string) => {
+  if (!id) return '—';
+  const parts = id.split('-');
+  if (parts.length >= 3 && parts[0] === 'worker') {
+    return `worker#${parts[parts.length - 1]}`;
+  }
+  if (id.length > 18) {
+    return `${id.slice(0, 16)}...`;
+  }
+  return id;
+};
 
 const Workers: React.FC = () => {
   const [workers, setWorkers] = useState<WorkerInfo[]>([]);
@@ -53,29 +64,37 @@ const Workers: React.FC = () => {
       title: 'Worker ID',
       dataIndex: 'workerId',
       key: 'workerId',
+      width: 150,
       render: (id: string) => (
-        <Space>
-          <ThunderboltOutlined style={{ color: '#ff5722' }} />
-          <Typography.Text code style={{ color: '#d9d9d9' }}>{id}</Typography.Text>
-        </Space>
+        <Tooltip title={id}>
+          <Space size={6} style={{ whiteSpace: 'nowrap' }}>
+            <ThunderboltOutlined style={{ color: '#ff5722' }} />
+            <Typography.Text code style={{ color: '#d9d9d9', margin: 0 }}>
+              {formatWorkerId(id)}
+            </Typography.Text>
+          </Space>
+        </Tooltip>
       ),
     },
     {
       title: 'Queue',
       dataIndex: 'queueName',
       key: 'queueName',
+      width: 140,
       render: (q: string) => <Tag color="blue">{q}</Tag>,
     },
     {
       title: 'Hostname',
       dataIndex: 'hostname',
       key: 'hostname',
-      render: (h: string | null) => <span style={{ color: '#8c8c8c' }}>{h ?? '—'}</span>,
+      width: 160,
+      render: (h: string | null) => <span style={{ color: '#8c8c8c', whiteSpace: 'nowrap' }}>{h ?? '—'}</span>,
     },
     {
       title: 'PID',
       dataIndex: 'processId',
       key: 'processId',
+      width: 90,
       render: (pid: number | null) =>
         pid !== null ? <code style={{ color: '#ff7a45' }}>{pid}</code> : <span style={{ color: '#8c8c8c' }}>—</span>,
     },
@@ -83,6 +102,7 @@ const Workers: React.FC = () => {
       title: 'Status',
       dataIndex: 'isAlive',
       key: 'status',
+      width: 120,
       render: (alive: boolean, record: WorkerInfo) => {
         if (record.status === 'STOPPED') {
           return <Tag icon={<PauseCircleOutlined />} color="default">STOPPED</Tag>;
@@ -98,6 +118,7 @@ const Workers: React.FC = () => {
       title: 'Active Jobs',
       dataIndex: 'activeJobs',
       key: 'activeJobs',
+      width: 110,
       render: (count: number) => (
         <Badge count={count} showZero={false} overflowCount={99} style={{ backgroundColor: '#ff5722' }}>
           <span style={{ color: '#d9d9d9', marginLeft: 8 }}>{count}</span>
@@ -108,14 +129,13 @@ const Workers: React.FC = () => {
       title: 'Last Heartbeat',
       dataIndex: 'lastHeartbeatAt',
       key: 'lastHeartbeatAt',
+      width: 160,
       render: (t: string) => {
         const date = new Date(t);
-        const secondsAgo = Math.round((Date.now() - date.getTime()) / 1000);
         return (
-          <Space>
-            <span style={{ color: '#8c8c8c' }}>{date.toLocaleTimeString()}</span>
-            <span style={{ color: '#595959', fontSize: 12 }}>({secondsAgo}s ago)</span>
-          </Space>
+          <span style={{ color: '#8c8c8c', whiteSpace: 'nowrap' }}>
+            {date.toLocaleTimeString()}
+          </span>
         );
       },
     },
@@ -123,8 +143,9 @@ const Workers: React.FC = () => {
       title: 'Started At',
       dataIndex: 'startedAt',
       key: 'startedAt',
+      width: 160,
       render: (t: string) => (
-        <span style={{ color: '#8c8c8c' }}>{new Date(t).toLocaleString()}</span>
+        <span style={{ color: '#8c8c8c', whiteSpace: 'nowrap' }}>{new Date(t).toLocaleString()}</span>
       ),
     },
   ];
@@ -152,22 +173,14 @@ const Workers: React.FC = () => {
           </Card>
         </Space>
 
-        <Card
-          bordered={false}
-          extra={
-            <ReloadOutlined
-              onClick={fetchWorkers}
-              spin={loading}
-              style={{ color: '#8c8c8c', cursor: 'pointer', fontSize: 16 }}
-            />
-          }
-        >
+        <Card bordered={false}>
           <Table
             columns={columns}
             dataSource={workers}
             rowKey="workerId"
             loading={loading}
             pagination={false}
+            size="middle"
             locale={{ emptyText: 'No workers connected — start a BullMQ worker process' }}
           />
         </Card>

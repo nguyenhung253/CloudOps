@@ -600,13 +600,13 @@ const JobsAndQueuesTable: React.FC = () => {
 
         return (
           <Space size="small">
-            <Button 
-              size="small" 
-              icon={<EyeOutlined />}
-              onClick={() => handleOpenDetails(record)}
-            >
-              Details
-            </Button>
+            <Tooltip title="View details">
+              <Button 
+                size="small" 
+                icon={<EyeOutlined />}
+                onClick={() => handleOpenDetails(record)}
+              />
+            </Tooltip>
 
             {isCancellable && (
               <Popconfirm
@@ -616,14 +616,14 @@ const JobsAndQueuesTable: React.FC = () => {
                 okText="Hủy Job"
                 cancelText="Quay lại"
               >
-                <Button 
-                  size="small" 
-                  danger 
-                  icon={<StopOutlined />}
-                  disabled={!isWritable}
-                >
-                  Cancel
-                </Button>
+                <Tooltip title="Cancel job">
+                  <Button 
+                    size="small" 
+                    danger 
+                    icon={<StopOutlined />}
+                    disabled={!isWritable}
+                  />
+                </Tooltip>
               </Popconfirm>
             )}
 
@@ -635,15 +635,15 @@ const JobsAndQueuesTable: React.FC = () => {
                 okText="Requeue"
                 cancelText="Quay lại"
               >
-                <Button 
-                  size="small" 
-                  type="primary" 
-                  ghost
-                  icon={<ReloadOutlined />}
-                  disabled={!isWritable}
-                >
-                  Requeue
-                </Button>
+                <Tooltip title="Requeue job">
+                  <Button 
+                    size="small" 
+                    type="primary" 
+                    ghost
+                    icon={<ReloadOutlined />}
+                    disabled={!isWritable}
+                  />
+                </Tooltip>
               </Popconfirm>
             )}
 
@@ -655,14 +655,14 @@ const JobsAndQueuesTable: React.FC = () => {
                 okText="Retry"
                 cancelText="Quay lại"
               >
-                <Button 
-                  size="small" 
-                  type="primary"
-                  icon={<PlayCircleOutlined />}
-                  disabled={!isWritable}
-                >
-                  Retry
-                </Button>
+                <Tooltip title="Retry job">
+                  <Button 
+                    size="small" 
+                    type="primary"
+                    icon={<PlayCircleOutlined />}
+                    disabled={!isWritable}
+                  />
+                </Tooltip>
               </Popconfirm>
             )}
           </Space>
@@ -833,6 +833,7 @@ const JobsAndQueuesTable: React.FC = () => {
             onChange: (p) => setPage(p),
             showSizeChanger: false
           }}
+          size="middle"
           style={{ backgroundColor: '#1c1c1c' }}
           scroll={{ x: 'max-content' }}
         />

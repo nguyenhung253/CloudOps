@@ -382,7 +382,8 @@ const Scheduler: React.FC = () => {
 
   return (
     <PageContainer
-      title={false}
+      title={<span style={{ color: '#fff', fontSize: '24px', fontWeight: 600 }}>Job Schedules</span>}
+      subTitle={<span style={{ color: '#8c8c8c' }}>Configure recurring resource sync and telemetry metric collection schedules</span>}
       extra={[
         <Button
           key="create"
@@ -456,6 +457,7 @@ const Scheduler: React.FC = () => {
           rowKey="id"
           loading={loading}
           pagination={false}
+          size="middle"
           locale={{
             emptyText: (
               <Empty

@@ -224,11 +224,11 @@ export const layout: RunTimeLayoutConfig = ({ initialState, setInitialState }) =
           React.createElement('div', { style: { width: '12px', height: '12px', borderRadius: '50%', backgroundColor: '#ffbd2e' } }),
           React.createElement('div', { style: { width: '12px', height: '12px', borderRadius: '50%', backgroundColor: '#27c93f' } })
         ),
-        // Logo and title (Keep sidebar accent colors intact as requested)
+        // Logo and title (Using img from public directory)
         React.createElement(
           'div',
           { style: { display: 'flex', alignItems: 'center', gap: '8px', marginTop: '0px' } },
-          React.createElement(CloudServerOutlined, { style: { fontSize: '24px', color: '#ff5722' } }),
+          React.createElement('img', { src: '/logo.png', alt: 'CloudOps Logo', style: { width: '28px', height: '28px', objectFit: 'contain' } }),
           React.createElement(
             'span',
             { style: { color: '#fff', fontSize: '18px', fontWeight: 600, fontFamily: "'Outfit', sans-serif" } },
