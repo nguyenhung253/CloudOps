@@ -246,10 +246,12 @@ export class ResourcesService {
     options?: {
       requestId?: string;
       onProgress?: (progress: number, message: string) => Promise<void>;
+      abortSignal?: AbortSignal;
     },
   ): Promise<SyncResourcesResult> {
     const requestId = options?.requestId;
     const onProgress = options?.onProgress;
+    const abortSignal = options?.abortSignal;
 
     const account = await this.prisma.cloudAccount.findFirst({
       where: { id: cloudAccountId, deletedAt: null },
@@ -397,6 +399,9 @@ export class ResourcesService {
     let step = 0;
 
     for (const region of regions) {
+      if (abortSignal?.aborted) {
+        throw new BadRequestException('Sync aborted: job was cancelled or timed out');
+      }
       for (const resourceType of resourceTypes) {
         step += 1;
         const progress = Math.min(

@@ -17,6 +17,15 @@ import { Roles } from '../auth/decorators/roles.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { JobsService } from '../jobs/jobs.service';
 
+/**
+ * Dedup key with 30s granularity — rapid double-clicks within the same
+ * half-minute window produce the same key and get deduplicated.
+ */
+function resourceSyncIdempotencyKey(cloudAccountId: string): string {
+  const bucket = Math.floor(Date.now() / 30_000);
+  return `sync:${cloudAccountId}:${bucket}`;
+}
+
 @Controller('cloud-accounts')
 @UseGuards(JwtAuthGuard, RolesGuard)
 export class ResourceSyncController {
@@ -43,6 +52,7 @@ export class ResourceSyncController {
         resourceTypes: dto?.resourceTypes,
       },
       actor: user,
+      idempotencyKey: resourceSyncIdempotencyKey(id),
     });
 
     return {

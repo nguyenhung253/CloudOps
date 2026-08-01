@@ -14,7 +14,7 @@ export class ResourceSyncHandler implements JobHandler {
   constructor(private readonly resourcesService: ResourcesService) {}
 
   async handle(ctx: JobHandlerContext): Promise<JobHandlerResult> {
-    const { job, updateProgress, isCancelled } = ctx;
+    const { job, updateProgress, isCancelled, abortSignal } = ctx;
     const payload = (job.payload ?? {}) as {
       cloudAccountId?: string;
       regions?: string[];
@@ -28,6 +28,9 @@ export class ResourceSyncHandler implements JobHandler {
 
     if (await isCancelled()) {
       throw new BadRequestException('Job was cancelled before execution');
+    }
+    if (abortSignal.aborted) {
+      throw new BadRequestException('Job timed out before execution');
     }
 
     if (!job.requestedBy) {
@@ -46,8 +49,12 @@ export class ResourceSyncHandler implements JobHandler {
           if (await isCancelled()) {
             throw new BadRequestException('Job was cancelled during execution');
           }
+          if (abortSignal.aborted) {
+            throw new BadRequestException('Job timed out during execution');
+          }
           await updateProgress(progress, message);
         },
+        abortSignal,
       },
     );
 
