@@ -33,7 +33,17 @@ describe('JobProcessorService & Reliability Scenarios', () => {
       decrementActiveJobs: jest.fn(),
     } as unknown as jest.Mocked<WorkerHeartbeatService>;
 
+    const prismaMock = {
+      job: { update: jest.fn().mockResolvedValue({}) },
+      jobEvent: { create: jest.fn().mockResolvedValue({}) },
+      $transaction: jest.fn().mockImplementation((fnOrArray: any) => {
+        if (Array.isArray(fnOrArray)) return Promise.all(fnOrArray);
+        return fnOrArray(); // interactive transaction callback
+      }),
+    } as any;
+
     processor = new JobProcessorService(
+      prismaMock,
       lifecycleMock,
       registryMock,
       heartbeatMock,

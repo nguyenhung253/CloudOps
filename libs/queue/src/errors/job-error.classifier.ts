@@ -152,11 +152,12 @@ export function classifyJobError(error: unknown): ClassifiedError {
     }
   }
 
-  // Default fallback for uncaught system exceptions (assume retryable if not explicitly non-retryable)
+  // Default fallback: unclassified errors are assumed non-retryable.
+  // Only explicitly matched retryable conditions (throttling, network, Redis) get retries.
   const message = error instanceof Error ? error.message : String(error || 'Unknown error');
   return {
-    isRetryable: true,
-    code: 'GENERIC_RETRYABLE_ERROR',
+    isRetryable: false,
+    code: 'UNCLASSIFIED_ERROR',
     type: error instanceof Error ? error.name : 'Error',
     message,
   };

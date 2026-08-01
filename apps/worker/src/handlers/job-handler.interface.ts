@@ -6,6 +6,8 @@ export interface JobHandlerContext {
   attemptNumber: number;
   updateProgress: (progress: number, message?: string) => Promise<void>;
   isCancelled: () => Promise<boolean>;
+  /** AbortSignal that fires when the job exceeds its timeout. Handlers with loops must poll signal.aborted. */
+  abortSignal: AbortSignal;
 }
 
 export interface JobHandlerResult {

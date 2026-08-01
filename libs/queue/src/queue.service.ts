@@ -25,8 +25,8 @@ export class QueueService implements OnModuleDestroy {
     this.queue = new Queue<QueueJobPayload>(CLOUDOPS_QUEUE_NAME, {
       connection: this.connection,
       defaultJobOptions: {
-        removeOnComplete: 1000,
-        removeOnFail: 5000,
+        removeOnComplete: 500,
+        removeOnFail: 200,
         attempts: 3,
         backoff: {
           type: 'exponential',

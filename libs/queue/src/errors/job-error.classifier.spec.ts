@@ -73,5 +73,12 @@ describe('JobErrorClassifier', () => {
       const classified = classifyJobError(error);
       expect(classified.isRetryable).toBe(false);
     });
+
+    it('should classify unknown/generic errors as non-retryable by default', () => {
+      const error = new Error('Something unexpected happened');
+      const classified = classifyJobError(error);
+      expect(classified.isRetryable).toBe(false);
+      expect(classified.code).toBe('UNCLASSIFIED_ERROR');
+    });
   });
 });

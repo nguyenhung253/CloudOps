@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { PrismaService } from '@app/database';
 import { JobStatus } from '@prisma/client';
 import { classifyJobError, RetryableJobError } from '@app/queue';
 import { JobLifecycleService } from './job-lifecycle.service';
@@ -11,6 +12,7 @@ export class JobProcessorService {
   private readonly timeoutMs: number;
 
   constructor(
+    private readonly prisma: PrismaService,
     private readonly lifecycle: JobLifecycleService,
     private readonly registry: JobHandlerRegistry,
     private readonly heartbeat: WorkerHeartbeatService,
@@ -49,23 +51,23 @@ export class JobProcessorService {
 
       const handler = this.registry.get(job.type);
       if (!handler) {
-        const { executionId } = await this.lifecycle.markRunning(job);
-        await this.lifecycle.markFailed(
-          { ...job, attemptsMade: job.attemptsMade },
-          executionId,
-          {
-            message: `No handler registered for job type ${job.type}`,
-            code: 'HANDLER_NOT_FOUND',
-            type: 'NonRetryableError',
-          },
-          false,
-        );
-        await this.lifecycle.addEvent(
-          jobId,
-          'MOVED_TO_DLQ',
-          'Job moved to DLQ: No handler registered for job type',
-          100,
-        );
+        // No handler registered — unrecoverable. Move directly to FAILED/DLQ
+        // without creating a useless execution record since no work was attempted.
+        await this.prisma.$transaction([
+          this.prisma.job.update({
+            where: { id: jobId },
+            data: { status: JobStatus.FAILED, completedAt: new Date() },
+          }),
+          this.prisma.jobEvent.create({
+            data: {
+              jobId,
+              eventType: 'MOVED_TO_DLQ',
+              message: `Job moved to DLQ: No handler registered for job type ${job.type}`,
+              progress: 100,
+            },
+          }),
+        ]);
+        this.logger.error(`No handler for job type ${job.type}; moved to DLQ`);
         return;
       }
 
@@ -73,10 +75,12 @@ export class JobProcessorService {
         await this.lifecycle.markRunning(job);
 
       try {
-        // Wrap execution with timeout using Promise.race
+        // Wrap execution with timeout using AbortController so handlers can stop work
+        const abortController = new AbortController();
         let timerId: NodeJS.Timeout | undefined;
         const timeoutPromise = new Promise<never>((_, reject) => {
           timerId = setTimeout(() => {
+            abortController.abort();
             reject(
               new RetryableJobError(
                 `Job execution timed out after ${this.timeoutMs}ms`,
@@ -93,6 +97,7 @@ export class JobProcessorService {
           updateProgress: (progress, message) =>
             this.lifecycle.updateProgress(jobId, progress, message),
           isCancelled: () => this.lifecycle.isCancelled(jobId),
+          abortSignal: abortController.signal,
         });
 
         const result = await Promise.race([handlePromise, timeoutPromise]).finally(
