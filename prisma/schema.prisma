@@ -127,6 +127,7 @@ enum IncidentSeverity {
 }
 
 enum NotificationChannel {
+  IN_APP
   EMAIL
   SLACK
   WEBHOOK
@@ -141,6 +142,23 @@ enum NotificationStatus {
   FAILED
 
   @@map("notification_status")
+}
+
+enum NotificationSource {
+  INCIDENT
+  MONITORING
+  JOB
+  CLOUD_ACCOUNT
+  SYSTEM
+
+  @@map("notification_source")
+}
+
+enum NotificationReadStatus {
+  UNREAD
+  READ
+
+  @@map("notification_read_status")
 }
 
 enum LogQueryStatus {
@@ -173,6 +191,8 @@ model User {
   createdAt    DateTime   @default(now()) @map("created_at") @db.Timestamptz
   updatedAt    DateTime   @updatedAt @map("updated_at") @db.Timestamptz
   deletedAt    DateTime?  @map("deleted_at") @db.Timestamptz
+
+  notificationPreferences   NotificationPreference[]
 
   sessions              Session[]
   auditLogs             AuditLog[]
@@ -304,6 +324,7 @@ model CloudResource {
   incidents        Incident[]
   evidence         IncidentEvidence[]
   healthSnapshots  ResourceHealthSnapshot[]
+  notifications    Notification[]
 
 
   @@unique([provider, cloudAccountId, region, resourceType, providerResourceId])
@@ -653,6 +674,7 @@ model Incident {
   timeline   IncidentTimeline[]
   evidence   IncidentEvidence[]
   deliveries NotificationDelivery[]
+  notifications Notification[]
 
   @@index([dedupKey, status])
   @@map("incidents")
@@ -731,8 +753,44 @@ model AuditLog {
   @@map("audit_logs")
 }
 
+model Notification {
+  id          String                 @id @default(uuid()) @db.Uuid
+  type        String                 @db.VarChar(80)
+  source      NotificationSource
+  severity    AlertSeverity
+  title       String                 @db.VarChar(255)
+  message     String                 @db.Text
+  resourceId  String?                @map("resource_id") @db.Uuid
+  incidentId  String?                @map("incident_id") @db.Uuid
+  jobId       String?                @map("job_id") @db.Uuid
+  readStatus  NotificationReadStatus @default(UNREAD) @map("read_status")
+  createdAt   DateTime               @default(now()) @map("created_at") @db.Timestamptz
+
+  deliveries NotificationDelivery[]
+  resource   CloudResource?          @relation(fields: [resourceId], references: [id], onDelete: SetNull)
+  incident   Incident?               @relation(fields: [incidentId], references: [id], onDelete: SetNull)
+
+  @@index([source, createdAt(sort: Desc)])
+  @@index([readStatus, createdAt(sort: Desc)])
+  @@map("notifications")
+}
+
+model NotificationPreference {
+  id        String              @id @default(uuid()) @db.Uuid
+  userId    String              @map("user_id") @db.Uuid
+  source    NotificationSource
+  channel   NotificationChannel
+  enabled   Boolean             @default(true)
+
+  user      User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, source, channel])
+  @@map("notification_preferences")
+}
+
 model NotificationDelivery {
   id                String              @id @default(uuid()) @db.Uuid
+  notificationId    String?             @map("notification_id") @db.Uuid
   alertId           String?             @map("alert_id") @db.Uuid
   incidentId        String?             @map("incident_id") @db.Uuid
   channel           NotificationChannel
@@ -748,9 +806,11 @@ model NotificationDelivery {
   createdAt         DateTime            @default(now()) @map("created_at") @db.Timestamptz
   updatedAt         DateTime            @updatedAt @map("updated_at") @db.Timestamptz
 
-  alert    Alert?    @relation(fields: [alertId], references: [id], onDelete: SetNull)
-  incident Incident? @relation(fields: [incidentId], references: [id], onDelete: SetNull)
+  notification Notification? @relation(fields: [notificationId], references: [id], onDelete: SetNull)
+  alert        Alert?        @relation(fields: [alertId], references: [id], onDelete: SetNull)
+  incident     Incident?     @relation(fields: [incidentId], references: [id], onDelete: SetNull)
 
+  @@index([notificationId])
   @@map("notification_deliveries")
 }
 
