@@ -1,0 +1,17 @@
+# Grafana Prometheus Datasource Configuration
+# Copy this to grafana/provisioning/datasources/ or configure manually.
+#
+# Default scrape target: http://cloudops-api:3000/api/v1/metrics
+# (Adjust URL for your deployment environment)
+
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    type: prometheus
+    access: proxy
+    url: http://cloudops-api:3000/api/v1/metrics
+    isDefault: true
+    editable: true
+    jsonData:
+      timeInterval: "30s"
