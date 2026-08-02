@@ -7,7 +7,12 @@ import appConfig from './config/app.config';
 import authConfig from './config/auth.config';
 import databaseConfig from './config/database.config';
 import queueConfig from './config/queue.config';
+import loggerConfig from './config/logger.config';
 import { validationSchema } from './config/validation.schema';
+import { LoggerContextMiddleware } from './middleware/logger-context.middleware';
+import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
+import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
+import { HttpMetricsInterceptor } from './interceptors/http-metrics.interceptor';
 import { HealthModule } from './health/health.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { UsersModule } from './modules/users/users.module';
@@ -28,43 +33,7 @@ import { SchedulesModule } from './modules/schedules/schedules.module';
 import { SettingsModule } from './modules/settings/settings.module';
 @Module({
   imports: [
-    LoggerModule.forRoot({
-      pinoHttp: {
-        level: process.env.LOG_LEVEL ?? 'info',
-        autoLogging: false,
-        transport:
-          process.env.NODE_ENV !== 'production'
-            ? {
-                target: 'pino-pretty',
-                options: {
-                  singleLine: true,
-                  translateTime: 'HH:MM:ss',
-                  ignore: 'pid,hostname',
-                },
-              }
-            : undefined,
-        hooks: {
-          logMethod(inputArgs, method) {
-            const [obj] = inputArgs;
-            if (obj && typeof obj === 'object' && 'context' in obj) {
-              const context = obj.context;
-              if (
-                context === 'InstanceLoader' ||
-                context === 'RoutesResolver' ||
-                context === 'RouterExplorer' ||
-                context === 'NestFactory' ||
-                context === 'NestApplication' ||
-                context === 'LegacyRouteConverter'
-              ) {
-                return;
-              }
-            }
-            method.apply(this, inputArgs);
-          },
-        },
-      },
-      forRoutes: ['{*path}'],
-    }),
+    LoggerModule.forRoot(loggerConfig),
     ConfigModule.forRoot({
       isGlobal: true,
       // Package cwd first, then monorepo root (pnpm filter runs with apps/api as cwd)
@@ -78,6 +47,10 @@ import { SettingsModule } from './modules/settings/settings.module';
       validationSchema,
     }),
     HealthModule,
+    ThrottlerModule.forRoot([{
+      ttl: 60000,
+      limit: 60,
+    }]),
     AuthModule,
     UsersModule,
     CloudAccountsModule,
@@ -96,10 +69,20 @@ import { SettingsModule } from './modules/settings/settings.module';
     SchedulesModule,
     SettingsModule,
   ],
+  providers: [
+    {
+      provide: APP_GUARD,
+      useClass: ThrottlerGuard,
+    },
+    {
+      provide: APP_INTERCEPTOR,
+      useClass: HttpMetricsInterceptor,
+    },
+  ],
 })
 
 export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer) {
-    consumer.apply(RequestIdMiddleware).forRoutes('{*path}');
+    consumer.apply(RequestIdMiddleware, LoggerContextMiddleware).forRoutes('{*path}');
   }
 }
