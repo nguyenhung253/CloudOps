@@ -10,10 +10,13 @@ import {
   HttpStatus,
   UseGuards,
 } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { ApplicationError, ErrorCode } from '@app/common';
 import { AuthService } from './auth.service';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
+import { ForgotPasswordDto } from './dto/forgot-password.dto';
+import { ResetPasswordDto } from './dto/reset-password.dto';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { CurrentUser } from './decorators/current-user.decorator';
 import { UsersService } from '../users/users.service';
@@ -50,12 +53,14 @@ export class AuthController {
   }
 
   @Post('register')
+  @Throttle({ default: { ttl: 3600000, limit: 10 } })
   async register(@Body() dto: RegisterDto) {
     const user = await this.authService.register(dto);
     return this.usersService.toPublicUser(user);
   }
 
   @Post('login')
+  @Throttle({ default: { ttl: 60000, limit: 5 } })
   @HttpCode(HttpStatus.OK)
   async login(
     @Body() dto: LoginDto,
@@ -112,5 +117,18 @@ export class AuthController {
     const result = await this.authService.logoutAll(user.id);
     this.clearRefreshCookie(res);
     return result;
+  }
+
+  @Post('forgot-password')
+  @Throttle({ default: { ttl: 900000, limit: 3 } })
+  @HttpCode(HttpStatus.OK)
+  async forgotPassword(@Body() dto: ForgotPasswordDto) {
+    return this.authService.forgotPassword(dto.email);
+  }
+
+  @Post('reset-password')
+  @HttpCode(HttpStatus.OK)
+  async resetPassword(@Body() dto: ResetPasswordDto) {
+    return this.authService.resetPassword(dto.token, dto.newPassword);
   }
 }
