@@ -1,5 +1,6 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
+import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '@app/database';
 import { ApplicationError, ErrorCode } from '@app/common';
 import { UsersService } from '../users/users.service';
@@ -24,9 +25,12 @@ interface RefreshTokenPayload {
 
 @Injectable()
 export class AuthService {
+  private readonly logger = new Logger(AuthService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly jwtService: JwtService,
+    private readonly configService: ConfigService,
     private readonly usersService: UsersService,
   ) {}
 
@@ -154,67 +158,74 @@ export class AuthService {
     }
 
     const tokenHash = this.hashToken(refreshToken);
-    const session = await this.prisma.session.findUnique({
-      where: { id: payload.sid },
-      include: { user: true },
-    });
+    const now = new Date();
 
-    if (!session || session.tokenHash !== tokenHash) {
-      // Nếu refresh token bị thay đổi thì revoke toàn bộ family
-      if (payload.tf) {
-        await this.revokeTokenFamily(payload.tf);
-      }
-      throw new ApplicationError(
+    // Wrapping read-check-write in a single transaction to prevent
+    // concurrent reuse from bypassing refresh token rotation detection.
+    const result = await this.prisma.$transaction(async (tx) => {
+      const session = await tx.session.findUnique({
+        where: { id: payload.sid },
+        include: { user: true },
+      });
+
+      if (!session || session.tokenHash !== tokenHash) {
+        if (payload.tf) {
+          await tx.session.updateMany({
+            where: { tokenFamily: payload.tf, revokedAt: null },
+            data: { revokedAt: now },
+          });
+        }
+        throw new ApplicationError(
         ErrorCode.TOKEN_EXPIRED,
         'Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại',
         401,
       );
     }
 
-    // Nếu refresh token đã bị revoke thì revoke toàn bộ family
-    if (session.revokedAt !== null) {
-      await this.revokeTokenFamily(session.tokenFamily);
-      throw new ApplicationError(
-        ErrorCode.REFRESH_TOKEN_REUSED,
+      // Already revoked = reuse detected → revoke entire family
+      if (session.revokedAt !== null) {
+        await tx.session.updateMany({
+          where: { tokenFamily: session.tokenFamily, revokedAt: null },
+          data: { revokedAt: now },
+        });
+        throw new ApplicationError(
+          ErrorCode.REFRESH_TOKEN_REUSED,
         'Phiên đăng nhập không còn hợp lệ. Vui lòng đăng nhập lại',
         401,
       );
     }
 
-    if (session.expiresAt < new Date()) {
-      throw new ApplicationError(
-        ErrorCode.TOKEN_EXPIRED,
-        'Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại',
-        401,
+      if (session.expiresAt < now) {
+        throw new ApplicationError(
+          ErrorCode.TOKEN_EXPIRED,
+          'Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại',
+          401,
+        );
+      }
+
+      const user = session.user;
+      if (user.status !== UserStatus.ACTIVE) {
+        throw new ApplicationError(
+          ErrorCode.ACCOUNT_DISABLED,
+          'Tài khoản của bạn không còn hoạt động',
+          403,
+        );
+      }
+
+      const newSessionId = crypto.randomUUID();
+      const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+
+      const newRefreshToken = this.jwtService.sign(
+        { sub: user.id, sid: newSessionId, tf: session.tokenFamily },
+        { expiresIn: '7d' },
       );
-    }
 
-    const user = session.user;
-    if (user.status !== UserStatus.ACTIVE) {
-      throw new ApplicationError(
-        ErrorCode.ACCOUNT_DISABLED,
-        'Tài khoản của bạn không còn hoạt động',
-        403,
-      );
-    }
+      const newTokenHash = this.hashToken(newRefreshToken);
 
-    const newSessionId = crypto.randomUUID();
-    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
-
-    const newRefreshToken = this.jwtService.sign(
-      { sub: user.id, sid: newSessionId, tf: session.tokenFamily },
-      { expiresIn: '7d' },
-    );
-
-    const newTokenHash = this.hashToken(newRefreshToken);
-
-    // Rotate : đánh dấu session cũ đã revoke và tạo session mới
-    await this.prisma.$transaction(async (tx) => {
+      // Rotate: revoke old session + create new session atomically
       await tx.session.update({
         where: { id: session.id },
-        data: {
-          revokedAt: new Date(),
-        },
+        data: { revokedAt: now },
       });
 
       await tx.session.create({
@@ -228,20 +239,22 @@ export class AuthService {
           expiresAt,
         },
       });
+
+      return { user, newRefreshToken };
     });
 
     const tokenPayload: TokenPayload = {
-      sub: user.id,
-      email: user.email,
-      role: user.role,
-      status: user.status,
+      sub: result.user.id,
+      email: result.user.email,
+      role: result.user.role,
+      status: result.user.status,
     };
 
     const accessToken = this.jwtService.sign(tokenPayload, { expiresIn: '15m' });
 
     return {
       accessToken,
-      refreshToken: newRefreshToken,
+      refreshToken: result.newRefreshToken,
     };
   }
 
@@ -277,5 +290,128 @@ export class AuthService {
     });
 
     return { revokedSessions: result.count };
+  }
+
+  /**
+   * Generate a password reset token (JWT, 15min expiry) and "send" it via email.
+   * In dev mode with no SMTP configured, the reset link is logged to console.
+   */
+  async forgotPassword(email: string): Promise<{ message: string }> {
+    const user = await this.usersService.findByEmail(email);
+    // Always return the same message to prevent account enumeration
+    if (!user || user.status !== UserStatus.ACTIVE) {
+      return { message: 'If an account with that email exists, a password reset link has been sent.' };
+    }
+
+    const resetToken = this.jwtService.sign(
+      { sub: user.id, purpose: 'password_reset' },
+      { expiresIn: '15m' },
+    );
+
+    const appUrl = this.configService.get<string>('APP_URL') ?? 'http://localhost:8000';
+    const resetLink = `${appUrl}/reset-password?token=${resetToken}`;
+
+    // Try to send via SMTP if configured, otherwise log to console (dev mode)
+    const smtpHost = this.configService.get<string>('SMTP_HOST');
+    if (smtpHost) {
+      try {
+        await this.sendResetEmail(user.email, user.fullName, resetLink);
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        this.logger.warn(`Failed to send reset email: ${msg}`);
+        this.logger.log(`[DEV] Password reset link for ${user.email}: ${resetLink}`);
+      }
+    } else {
+      this.logger.log(`[DEV] Password reset link for ${user.email}: ${resetLink}`);
+    }
+
+    return { message: 'If an account with that email exists, a password reset link has been sent.' };
+  }
+
+  /**
+   * Verify reset token and update password.
+   */
+  async resetPassword(token: string, newPassword: string): Promise<{ message: string }> {
+    let payload: { sub: string; purpose: string };
+    try {
+      payload = this.jwtService.verify<{ sub: string; purpose: string }>(token);
+    } catch {
+      throw new ApplicationError(
+        ErrorCode.TOKEN_EXPIRED,
+        'Link đặt lại mật khẩu không hợp lệ hoặc đã hết hạn. Vui lòng yêu cầu link mới.',
+        400,
+      );
+    }
+
+    if (payload.purpose !== 'password_reset') {
+      throw new ApplicationError(
+        ErrorCode.TOKEN_EXPIRED,
+        'Token không hợp lệ',
+        400,
+      );
+    }
+
+    const user = await this.usersService.findById(payload.sub);
+    if (!user || user.status !== UserStatus.ACTIVE) {
+      throw new ApplicationError(
+        ErrorCode.RESOURCE_NOT_FOUND,
+        'Tài khoản không tồn tại hoặc đã bị vô hiệu hóa',
+        400,
+      );
+    }
+
+    const passwordHash = await argon2.hash(newPassword);
+
+    // Update password + revoke all sessions (force re-login)
+    await this.prisma.$transaction([
+      this.prisma.user.update({
+        where: { id: user.id },
+        data: { passwordHash },
+      }),
+      this.prisma.session.updateMany({
+        where: { userId: user.id, revokedAt: null },
+        data: { revokedAt: new Date() },
+      }),
+    ]);
+
+    this.logger.log(`Password reset successful for user ${user.email}`);
+
+    return { message: 'Mật khẩu đã được đặt lại thành công. Vui lòng đăng nhập bằng mật khẩu mới.' };
+  }
+
+  /**
+   * Send password reset email via SMTP.
+   * Requires nodemailer to be installed (npm install nodemailer).
+   * Set SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, SMTP_FROM env vars.
+   * Falls back to console log if nodemailer is not available.
+   */
+  private async sendResetEmail(to: string, name: string, resetLink: string): Promise<void> {
+    let nodemailer: any;
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      nodemailer = require('nodemailer');
+    } catch {
+      this.logger.warn('nodemailer not installed — reset link logged to console instead');
+      this.logger.log(`[DEV] Password reset for ${to}: ${resetLink}`);
+      return;
+    }
+
+    const transporter = nodemailer.createTransport({
+      host: this.configService.get<string>('SMTP_HOST') ?? 'localhost',
+      port: Number(this.configService.get<string>('SMTP_PORT') ?? 587),
+      secure: this.configService.get<string>('SMTP_SECURE') === 'true',
+      auth: {
+        user: this.configService.get<string>('SMTP_USER') ?? '',
+        pass: this.configService.get<string>('SMTP_PASS') ?? '',
+      },
+    });
+
+    await transporter.sendMail({
+      from: this.configService.get<string>('SMTP_FROM') ?? 'noreply@cloudops.local',
+      to,
+      subject: 'CloudOps — Password Reset',
+      text: `Hi ${name},\n\nYou requested a password reset. Click the link below to reset your password (valid for 15 minutes):\n\n${resetLink}\n\nIf you did not request this, please ignore this email.\n\n— CloudOps Team`,
+      html: `<p>Hi ${name},</p><p>You requested a password reset. Click the link below to reset your password (valid for <strong>15 minutes</strong>):</p><p><a href="${resetLink}">${resetLink}</a></p><p>If you did not request this, please ignore this email.</p><p>— CloudOps Team</p>`,
+    });
   }
 }
