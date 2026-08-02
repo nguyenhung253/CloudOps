@@ -1,9 +1,22 @@
 import { Controller, Get } from '@nestjs/common';
+import { HealthService } from './health.service';
 
-@Controller('health')
+@Controller()
 export class HealthController {
-  @Get()
+  constructor(private readonly healthService: HealthService) {}
+
+  @Get('health')
   check() {
-    return { status: 'ok' };
+    return this.healthService.check();
+  }
+
+  @Get('ready')
+  readiness() {
+    return this.healthService.readiness();
+  }
+
+  @Get('version')
+  version() {
+    return this.healthService.getVersion();
   }
 }

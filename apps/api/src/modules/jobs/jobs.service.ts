@@ -16,6 +16,9 @@ import {
 } from '@prisma/client';
 import { CreateJobDto } from './dto/create-job.dto';
 import { ListJobsDto } from './dto/list-jobs.dto';
+import { PrometheusService } from '../metrics/prometheus.service';
+import { NotificationService } from '../notifications/notification.service';
+import { NotificationSource } from '@prisma/client';
 
 const MVP_TYPES = new Set<JobType>([
   JobType.RESOURCE_SYNC,
@@ -83,10 +86,33 @@ export interface CreateJobResult {
 export class JobsService {
   private readonly logger = new Logger(JobsService.name);
 
+  private readonly jobsCreated: ReturnType<PrometheusService['registerCounter']>;
+  private readonly jobsCompleted: ReturnType<PrometheusService['registerCounter']>;
+  private readonly jobsFailed: ReturnType<PrometheusService['registerCounter']>;
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly queueService: QueueService,
-  ) {}
+    private readonly prometheus: PrometheusService,
+    private readonly notificationService: NotificationService,
+  ) {
+    // Register job metrics on construction (lazy via service)
+    this.jobsCreated = this.prometheus.registerCounter(
+      'jobs_created_total',
+      'Total number of jobs created',
+      ['type'],
+    );
+    this.jobsCompleted = this.prometheus.registerCounter(
+      'jobs_completed_total',
+      'Total number of jobs completed',
+      ['type', 'status'],
+    );
+    this.jobsFailed = this.prometheus.registerCounter(
+      'jobs_failed_total',
+      'Total number of failed jobs',
+      ['type'],
+    );
+  }
 
   toPublic(job: any, extra?: { enqueueError?: string | null }): PublicJob {
     return {
@@ -199,6 +225,8 @@ export class JobsService {
       type: job.type,
       cloudAccountId: job.cloudAccountId,
     });
+
+    this.jobsCreated.inc({ type: job.type });
 
     // 2) Publish minimal payload to BullMQ
     const enqueueError = await this.tryEnqueue(job);
@@ -367,14 +395,27 @@ export class JobsService {
       throw new BadRequestException(`Cannot cancel job in status ${job.status}`);
     }
 
+    // Status guard prevents TOCTOU: if worker changed status between read and write,
+    // the update returns null (no matching row) instead of silently overwriting.
     const updated = await this.prisma.job.update({
-      where: { id },
+      where: {
+        id,
+        status: { in: [...CANCELLABLE_STATUSES] },
+      },
       data: {
         status: JobStatus.CANCELLED,
         cancelledAt: new Date(),
         completedAt: new Date(),
       },
     });
+
+    if (!updated) {
+      // Status was changed concurrently — refetch and report actual state
+      const current = await this.prisma.job.findUniqueOrThrow({ where: { id } });
+      throw new BadRequestException(
+        `Cannot cancel job: status was changed to ${current.status} by another process`,
+      );
+    }
 
     await this.addEvent(id, 'JOB_CANCELLED', 'Job cancelled by user', updated.progress, {
       cancelledBy: actor.id,
@@ -390,6 +431,9 @@ export class JobsService {
   async retryEnqueue(id: string, actor: User): Promise<PublicJob> {
     const job = await this.prisma.job.findUnique({ where: { id } });
     if (!job) {
+      throw new NotFoundException('Job not found');
+    }
+    if (actor.role === UserRole.VIEWER && job.requestedBy !== actor.id) {
       throw new NotFoundException('Job not found');
     }
     if (job.status === JobStatus.SUCCEEDED) {
@@ -431,8 +475,13 @@ export class JobsService {
     const newMaxAttempts =
       job.attemptsMade >= job.maxAttempts ? job.attemptsMade + 3 : job.maxAttempts;
 
+    // Status guard prevents TOCTOU: if worker changed status concurrently,
+    // the update returns null instead of silently overwriting.
     const resetJob = await this.prisma.job.update({
-      where: { id },
+      where: {
+        id,
+        status: { notIn: [JobStatus.SUCCEEDED, JobStatus.RUNNING, JobStatus.QUEUED, JobStatus.PENDING] },
+      },
       data: {
         status: JobStatus.PENDING,
         maxAttempts: newMaxAttempts,
@@ -440,6 +489,13 @@ export class JobsService {
         cancelledAt: null,
       },
     });
+
+    if (!resetJob) {
+      const current = await this.prisma.job.findUniqueOrThrow({ where: { id } });
+      throw new BadRequestException(
+        `Cannot retry job: status was changed to ${current.status} by another process`,
+      );
+    }
 
     await this.addEvent(
       id,
@@ -455,6 +511,17 @@ export class JobsService {
 
     const enqueueError = await this.tryEnqueue(resetJob);
     const refreshed = await this.prisma.job.findUniqueOrThrow({ where: { id } });
+
+    // Emit notification for manual retry (best-effort)
+    this.notificationService.create({
+      type: 'JOB_RETRY',
+      source: NotificationSource.JOB,
+      severity: 'WARNING',
+      title: `Job Retry: ${job.type}`,
+      message: `Job ${id} (${job.type}) manually retried after ${job.status}`,
+      jobId: id,
+    }).catch((err) => this.logger.warn(`Failed to emit job retry notification: ${err.message}`));
+
     return this.toPublic(refreshed, { enqueueError });
   }
 

@@ -17,5 +17,7 @@ COPY packages/shared-contracts/package.json ./packages/shared-contracts/
 RUN pnpm install --prod --frozen-lockfile
 COPY --from=builder /app/apps/api/dist ./apps/api/dist
 COPY --from=builder /app/packages/shared-contracts/dist ./packages/shared-contracts/dist
+RUN addgroup -S cloudops && adduser -S cloudops -G cloudops
+USER cloudops
 EXPOSE 3000
 CMD ["node", "apps/api/dist/main"]

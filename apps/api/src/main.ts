@@ -7,6 +7,8 @@ import cookieParser from 'cookie-parser';
 import { Logger } from 'nestjs-pino';
 import { PrismaService } from '@app/database';
 import Redis from 'ioredis';
+import { helmetConfig, corsConfig } from './config/security.config';
+import { HttpMetricsInterceptor } from './interceptors/http-metrics.interceptor';
 
 async function checkDatabase(app: any): Promise<boolean> {
   try {
@@ -40,6 +42,8 @@ async function bootstrap() {
     logger: ['warn', 'error'],
   });
   app.useLogger(app.get(Logger));
+  app.use(helmetConfig);
+  app.enableCors(corsConfig);
   app.use(cookieParser());
   app.setGlobalPrefix('api/v1', {
     exclude: ['health', 'api/docs', 'api/docs/(.*)', 'api/docs-json'],

@@ -9,7 +9,7 @@ export class ResponseInterceptor implements NestInterceptor {
     const ctx = context.switchToHttp();
     const request = ctx.getRequest();
 
-    if (request?.url?.includes('/api/docs') || request?.url?.includes('/health')) {
+    if (request?.url?.includes('/api/docs') || request?.url?.includes('/health') || request?.url?.includes('/ready') || request?.url?.includes('/version')) {
       return next.handle();
     }
 
