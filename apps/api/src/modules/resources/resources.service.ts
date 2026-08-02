@@ -279,6 +279,24 @@ export class ResourcesService {
 
     await onProgress?.(5, 'Creating sync snapshot');
 
+    // Sync mutex: prevent concurrent syncs on the same cloud account.
+    // If a RUNNING snapshot exists and is NOT orphaned (< 2 hours old),
+    // reject the new sync to avoid data corruption from overlapping upserts.
+    const activeSync = await this.prisma.resourceSyncSnapshot.findFirst({
+      where: {
+        cloudAccountId: account.id,
+        status: ResourceSyncStatus.RUNNING,
+        startedAt: { gte: new Date(Date.now() - 2 * 60 * 60 * 1000) },
+      },
+      select: { id: true, startedAt: true },
+    });
+    if (activeSync) {
+      throw new BadRequestException(
+        `A resource sync is already running for this account (started at ${activeSync.startedAt.toISOString()}). ` +
+        'Wait for it to complete or cancel the existing sync job.',
+      );
+    }
+
     // Clean up any orphaned RUNNING snapshots from a previous worker crash.
     // A snapshot stuck in RUNNING for >2 hours means the worker died mid-sync.
     const orphanCutoff = new Date(Date.now() - 2 * 60 * 60 * 1000);

@@ -1,12 +1,16 @@
 import {
   BadRequestException,
+  Inject,
   Injectable,
+  Logger,
   NotFoundException,
+  forwardRef,
 } from '@nestjs/common';
 import { PrismaService } from '@app/database';
 import {
   IncidentSeverity,
   IncidentStatus,
+  NotificationSource,
   Prisma,
   User,
 } from '@prisma/client';
@@ -16,6 +20,7 @@ import { AddTimelineDto } from './dto/add-timeline.dto';
 import { AddEvidenceDto } from './dto/add-evidence.dto';
 import { ListIncidentsDto } from './dto/list-incidents.dto';
 import { AuditLogsService } from '../audit-logs/audit-logs.service';
+import { NotificationService } from '../notifications/notification.service';
 
 const INCIDENT_INCLUDES = {
   primaryResource: { select: { id: true, name: true, resourceType: true, providerResourceId: true } },
@@ -38,9 +43,13 @@ const VALID_STATUS_TRANSITIONS: Record<IncidentStatus, IncidentStatus[]> = {
 
 @Injectable()
 export class IncidentsService {
+  private readonly logger = new Logger(IncidentsService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly auditLogsService: AuditLogsService,
+    @Inject(forwardRef(() => NotificationService))
+    private readonly notificationService: NotificationService,
   ) {}
 
   async findAll(filters: ListIncidentsDto = {}, page = 1, limit = 20) {
@@ -200,6 +209,17 @@ export class IncidentsService {
         severity: dto.severity,
       },
     });
+
+    // Emit notification (best-effort, outside transaction)
+    this.notificationService.create({
+      type: 'INCIDENT_CREATED',
+      source: NotificationSource.INCIDENT,
+      severity: dto.severity === IncidentSeverity.SEV1 ? 'CRITICAL' : dto.severity === IncidentSeverity.SEV2 ? 'CRITICAL' : 'WARNING',
+      title: `Incident: ${dto.title}`,
+      message: dto.description.trim() || dto.title,
+      resourceId: dto.primaryResourceId ?? undefined,
+      incidentId: incident.id,
+    }).catch((err) => this.logger?.warn?.(`Failed to emit notification: ${err.message}`));
 
     return incident;
   }

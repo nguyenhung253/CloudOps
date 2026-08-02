@@ -100,12 +100,19 @@ export class GlobalExceptionFilter implements ExceptionFilter {
       };
     }
 
-    // Default fallback for unhandled errors
+    // Default fallback for unhandled errors.
+    // NEVER expose raw error message to clients — log internally instead.
     const error = exception as Error;
+    if (error?.message) {
+      console.error(
+        `[GlobalExceptionFilter] Unhandled error: ${error.message}`,
+        error.stack,
+      );
+    }
     return {
       statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
       code: ErrorCode.INTERNAL_ERROR,
-      message: error?.message || 'Internal server error',
+      message: 'Lỗi máy chủ nội bộ',
       details: undefined,
     };
   }

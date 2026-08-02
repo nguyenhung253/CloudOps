@@ -85,6 +85,12 @@ export default defineConfig({
       icon: 'WarningOutlined',
     },
     {
+      name: 'Notifications',
+      path: '/notifications',
+      component: './Notifications',
+      icon: 'BellOutlined',
+    },
+    {
       name: 'Logs',
       path: '/logs',
       component: './Logs',
