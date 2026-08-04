@@ -330,8 +330,10 @@ export class MetricCollectionHandler implements JobHandler {
     const map: Record<string, { id: string; metricName: string; unit?: string | null }> = {};
 
     for (const name of MVP_EC2_METRIC_NAMES) {
+      const isAgent = name === 'mem_used_percent' || name === 'disk_used_percent';
+      const namespace = isAgent ? 'CWAgent' : 'AWS/EC2';
       const unit =
-        name === 'CPUUtilization'
+        name.includes('Percent') || name.includes('percent') || name === 'CPUUtilization'
           ? 'Percent'
           : name.includes('Bytes')
             ? 'Bytes'
@@ -344,14 +346,14 @@ export class MetricCollectionHandler implements JobHandler {
           provider_resourceType_namespace_metricName: {
             provider: CloudProvider.AWS,
             resourceType: 'ec2:instance',
-            namespace: 'AWS/EC2',
+            namespace,
             metricName: name,
           },
         },
         create: {
           provider: CloudProvider.AWS,
           resourceType: 'ec2:instance',
-          namespace: 'AWS/EC2',
+          namespace,
           metricName: name,
           defaultStatistic: name === 'StatusCheckFailed' ? 'Maximum' : 'Average',
           defaultPeriodSeconds: 300,
