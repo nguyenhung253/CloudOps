@@ -6,6 +6,7 @@ import {
   Prisma,
 } from '@prisma/client';
 import { logContext } from '@app/common';
+import { QueueService } from '@app/queue';
 
 export interface CreateNotificationInput {
   userId?: string;
@@ -21,7 +22,10 @@ export interface CreateNotificationInput {
 export class NotificationsService {
   private readonly logger = new Logger(NotificationsService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly queueService: QueueService,
+  ) {}
 
   /**
    * Create a notification delivery record.
@@ -116,6 +120,7 @@ export class NotificationsService {
 
   /**
    * Retry a failed notification delivery.
+   * Resets DB status to PENDING and re-enqueues to BullMQ for worker pickup.
    */
   async retry(id: string): Promise<{ id: string; status: NotificationStatus }> {
     const delivery = await this.prisma.notificationDelivery.findUnique({ where: { id } });
@@ -129,10 +134,16 @@ export class NotificationsService {
       where: { id },
       data: {
         status: NotificationStatus.PENDING,
-        attemptCount: { increment: 1 },
         lastError: null,
       },
     });
+
+    // Re-enqueue to BullMQ so the worker picks it up
+    if (delivery.channel === NotificationChannel.EMAIL) {
+      await this.queueService.enqueueNotification(updated.id).catch((err) => {
+        this.logger.warn(`Failed to re-enqueue notification delivery ${id}: ${err?.message}`);
+      });
+    }
 
     return { id: updated.id, status: updated.status };
   }

@@ -24,7 +24,7 @@ export interface CreateNotificationInput {
 export class NotificationService {
   private readonly logger = new Logger(NotificationService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaService) { }
 
   /**
    * Create a notification event and dispatch to configured channels.
