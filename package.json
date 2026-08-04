@@ -12,25 +12,28 @@
     "lint": "pnpm --recursive run lint",
     "test": "pnpm --recursive run test",
     "db:generate": "prisma generate --schema=prisma/schema.prisma",
-    "db:push": "prisma db push --schema=prisma/schema.prisma"
+    "db:push": "prisma db push --schema=prisma/schema.prisma",
+    "seed:demo": "ts-node -T -O \"{\\\"module\\\":\\\"commonjs\\\",\\\"target\\\":\\\"es2021\\\",\\\"moduleResolution\\\":\\\"node\\\",\\\"esModuleInterop\\\":true}\" scripts/seed-demo.ts"
   },
   "devDependencies": {
     "@prisma/config": "^7.8.0",
     "@types/cookie-parser": "^1.4.10",
     "@types/express": "^5.0.0",
     "@types/node": "^24.0.0",
+    "@types/nodemailer": "^8.0.1",
     "@types/pg": "^8.20.0",
     "cross-env": "^10.1.0",
     "prisma": "^7.8.0",
+    "ts-node": "^10.9.2",
     "typescript": "^5.7.3"
   },
   "dependencies": {
     "@aws-sdk/client-cloudwatch": "^3.1093.0",
     "@aws-sdk/client-ec2": "^3.1093.0",
-
     "@aws-sdk/client-elastic-load-balancing-v2": "^3.1093.0",
     "@aws-sdk/client-sts": "^3.1091.0",
     "@nestjs/common": "^11.0.1",
+    "@nestjs/config": "^4.0.4",
     "@nestjs/core": "^11.0.1",
     "@prisma/adapter-pg": "^7.8.0",
     "@prisma/client": "^7.8.0",
