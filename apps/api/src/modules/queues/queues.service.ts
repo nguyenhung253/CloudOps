@@ -2,13 +2,23 @@ import { Injectable } from '@nestjs/common';
 import { PrismaService } from '@app/database';
 import { QueueService } from '@app/queue';
 import { JobStatus } from '@prisma/client';
+import { PrometheusService } from '../metrics/prometheus.service';
 
 @Injectable()
 export class QueuesService {
+  private readonly queueWaitingGauge: ReturnType<PrometheusService['registerGauge']>;
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly queueService: QueueService,
-  ) {}
+    private readonly prometheus: PrometheusService,
+  ) {
+    this.queueWaitingGauge = this.prometheus.registerGauge(
+      'queue_waiting_jobs',
+      'Number of jobs waiting in queue',
+      ['queue'],
+    );
+  }
 
   async getSummary() {
     const grouped = await this.prisma.job.groupBy({
@@ -35,11 +45,14 @@ export class QueuesService {
 
     const queueMetrics = await this.queueService.getJobCounts();
 
+    // Update Prometheus gauge
+    this.queueWaitingGauge.set(
+      { queue: 'cloudops-jobs' },
+      queueMetrics?.waiting ?? 0,
+    );
+
     return {
-      database: {
-        ...statusCounts,
-        total,
-      },
+      database: { ...statusCounts, total },
       queue: queueMetrics,
     };
   }

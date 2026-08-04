@@ -25,6 +25,7 @@ import { AlertRulesModule } from './modules/alert-rules/alert-rules.module';
 import { AlertsModule } from './modules/alerts/alerts.module';
 import { IncidentsModule } from './modules/incidents/incidents.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
+import { EmailModule } from '@app/common';
 import { AuditLogsModule } from './modules/audit-logs/audit-logs.module';
 import { DashboardModule } from './modules/dashboard/dashboard.module';
 import { WorkersModule } from './modules/workers/workers.module';
@@ -47,6 +48,7 @@ import { SettingsModule } from './modules/settings/settings.module';
       validationSchema,
     }),
     HealthModule,
+    EmailModule,
     ThrottlerModule.forRoot([{
       ttl: 60000,
       limit: 60,

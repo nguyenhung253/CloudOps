@@ -2,7 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '@app/database';
-import { ApplicationError, ErrorCode } from '@app/common';
+import { ApplicationError, ErrorCode, EmailService } from '@app/common';
 import { UsersService } from '../users/users.service';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
@@ -23,6 +23,8 @@ interface RefreshTokenPayload {
   tf: string;
 }
 
+import { AuditLogsService } from '../audit-logs/audit-logs.service';
+
 @Injectable()
 export class AuthService {
   private readonly logger = new Logger(AuthService.name);
@@ -32,6 +34,8 @@ export class AuthService {
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
     private readonly usersService: UsersService,
+    private readonly emailService: EmailService,
+    private readonly auditLogsService: AuditLogsService,
   ) {}
 
   private hashToken(token: string): string {
@@ -137,6 +141,16 @@ export class AuthService {
     };
 
     const accessToken = this.jwtService.sign(payload, { expiresIn: '15m' });
+
+    await this.auditLogsService.create({
+      actorUserId: user.id,
+      action: 'AUTH_LOGIN',
+      targetType: 'user',
+      targetId: user.id,
+      ipAddress,
+      userAgent,
+      metadata: { email: user.email, role: user.role },
+    });
 
     return {
       accessToken,
@@ -276,6 +290,14 @@ export class AuthService {
         revokedAt: new Date(),
       },
     });
+
+    await this.auditLogsService.create({
+      actorUserId: payload.sub,
+      action: 'AUTH_LOGOUT',
+      targetType: 'user',
+      targetId: payload.sub,
+      metadata: { sessionId: payload.sid },
+    });
   }
 
   async logoutAll(userId: string): Promise<{ revokedSessions: number }> {
@@ -380,34 +402,18 @@ export class AuthService {
   }
 
   /**
-   * Send password reset email via SMTP.
-   * Requires nodemailer to be installed (npm install nodemailer).
+   * Send password reset email via shared EmailService (SMTP).
    * Set SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, SMTP_FROM env vars.
-   * Falls back to console log if nodemailer is not available.
+   * Falls back to console log if SMTP is not configured.
    */
   private async sendResetEmail(to: string, name: string, resetLink: string): Promise<void> {
-    let nodemailer: any;
-    try {
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
-      nodemailer = require('nodemailer');
-    } catch {
-      this.logger.warn('nodemailer not installed — reset link logged to console instead');
+    if (!this.emailService.isConfigured()) {
+      this.logger.warn('SMTP not configured — reset link logged to console instead');
       this.logger.log(`[DEV] Password reset for ${to}: ${resetLink}`);
       return;
     }
 
-    const transporter = nodemailer.createTransport({
-      host: this.configService.get<string>('SMTP_HOST') ?? 'localhost',
-      port: Number(this.configService.get<string>('SMTP_PORT') ?? 587),
-      secure: this.configService.get<string>('SMTP_SECURE') === 'true',
-      auth: {
-        user: this.configService.get<string>('SMTP_USER') ?? '',
-        pass: this.configService.get<string>('SMTP_PASS') ?? '',
-      },
-    });
-
-    await transporter.sendMail({
-      from: this.configService.get<string>('SMTP_FROM') ?? 'noreply@cloudops.local',
+    await this.emailService.send({
       to,
       subject: 'CloudOps — Password Reset',
       text: `Hi ${name},\n\nYou requested a password reset. Click the link below to reset your password (valid for 15 minutes):\n\n${resetLink}\n\nIf you did not request this, please ignore this email.\n\n— CloudOps Team`,

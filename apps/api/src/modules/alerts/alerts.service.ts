@@ -14,6 +14,7 @@ import {
 import { ListAlertsDto } from './dto/list-alerts.dto';
 import { CreateIncidentFromAlertDto } from './dto/create-incident-from-alert.dto';
 import { AuditLogsService } from '../audit-logs/audit-logs.service';
+import { PrometheusService } from '../metrics/prometheus.service';
 
 const ALERT_INCLUDES = {
   alertRule: { select: { id: true, name: true, severity: true } },
@@ -40,10 +41,19 @@ function buildFingerprint(ruleId: string, resourceId: string | null): string {
 
 @Injectable()
 export class AlertsService {
+  private readonly alertsCreatedCounter: ReturnType<PrometheusService['registerCounter']>;
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly auditLogsService: AuditLogsService,
-  ) {}
+    private readonly prometheus: PrometheusService,
+  ) {
+    this.alertsCreatedCounter = this.prometheus.registerCounter(
+      'alerts_created_total',
+      'Total number of alerts created',
+      ['severity'],
+    );
+  }
 
   async findAll(filters: ListAlertsDto = {}, page = 1, limit = 20) {
     const skip = (Math.max(1, page) - 1) * Math.min(100, Math.max(1, limit));
@@ -197,11 +207,25 @@ export class AlertsService {
   }
 
   async resolve(id: string, actor: User, requestId?: string) {
-    // Optimistic lock: only update if currently ACKNOWLEDGED
     const now = new Date();
     const result = await this.prisma.$transaction(async (tx) => {
-      const updated = await tx.alert.updateMany({
-        where: { id, status: AlertStatus.ACKNOWLEDGED },
+      const currentAlert = await tx.alert.findUnique({
+        where: { id },
+        select: { status: true },
+      });
+
+      if (!currentAlert) {
+        throw new NotFoundException(`Alert ${id} not found`);
+      }
+
+      if (currentAlert.status === AlertStatus.RESOLVED) {
+        throw new BadRequestException('Alert is already resolved');
+      }
+
+      const previousStatus = currentAlert.status;
+
+      await tx.alert.update({
+        where: { id },
         data: {
           status: AlertStatus.RESOLVED,
           resolvedAt: now,
@@ -209,29 +233,13 @@ export class AlertsService {
         },
       });
 
-      if (updated.count === 0) {
-        const current = await tx.alert.findUnique({
-          where: { id },
-          select: { status: true },
-        });
-        if (!current) {
-          throw new NotFoundException(`Alert ${id} not found`);
-        }
-        if (current.status === AlertStatus.RESOLVED) {
-          throw new BadRequestException('Alert is already resolved');
-        }
-        throw new BadRequestException(
-          `Cannot resolve alert in "${current.status}" status. Alert must be ACKNOWLEDGED before resolving.`,
-        );
-      }
-
       await tx.alertEvent.create({
         data: {
           alertId: id,
           eventType: 'RESOLVED',
           actorUserId: actor.id,
           payload: {
-            previousStatus: AlertStatus.ACKNOWLEDGED,
+            previousStatus,
             newStatus: AlertStatus.RESOLVED,
             timestamp: now.toISOString(),
           },
@@ -362,6 +370,8 @@ export class AlertsService {
 
       return incident;
     });
+
+    this.alertsCreatedCounter.inc({ severity: result.severity });
 
     await this.auditLogsService.create({
       actorUserId: actor.id,
