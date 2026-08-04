@@ -57,7 +57,7 @@ const Login: React.FC = () => {
       await setInitialState({
         currentUser: {
           name: user.fullName || user.email,
-          avatar: 'https://gw.alipayobjects.com/zos/antfincdn/XAosamN5UP/BiazfanxmamNRoxxVxka.png',
+          avatar: '/account.png',
           role: user.role.toLowerCase(),
         },
       });
@@ -80,12 +80,12 @@ const Login: React.FC = () => {
         data: { email: values.email },
         skipErrorHandler: true,
       });
-      message.success('If an account with that email exists, a reset link has been sent.');
+      message.success('Liên kết khôi phục mật khẩu đã được gửi đến email của bạn.');
       setForgotOpen(false);
       forgotForm.resetFields();
     } catch {
       // Always show success to prevent account enumeration
-      message.success('If an account with that email exists, a reset link has been sent.');
+      message.success('Liên kết khôi phục mật khẩu đã được gửi đến email của bạn.');
       setForgotOpen(false);
       forgotForm.resetFields();
     } finally {
@@ -118,6 +118,7 @@ const Login: React.FC = () => {
         >
           <Form.Item
             name="email"
+            validateTrigger={['onBlur']}
             rules={[
               { required: true, message: 'Vui lòng nhập email!' },
               { type: 'email', message: 'Email không hợp lệ!' },
@@ -154,18 +155,13 @@ const Login: React.FC = () => {
           </Form.Item>
         </Form>
 
-        <div style={{ textAlign: 'center', marginTop: 12 }}>
+        <div style={{ textAlign: 'center', marginTop: 16 }}>
           <a
             onClick={() => setForgotOpen(true)}
-            style={{ color: '#8c8c8c', fontSize: 12, cursor: 'pointer' }}
+            className={styles.forgotLink}
           >
             Forgot Password?
           </a>
-        </div>
-        <div style={{ textAlign: 'center', marginTop: 8 }}>
-          <span style={{ color: '#595959', fontSize: 12 }}>
-            Accounts are created by your administrator. Contact admin for access.
-          </span>
         </div>
       </Card>
 
@@ -180,6 +176,7 @@ const Login: React.FC = () => {
         <Form form={forgotForm} layout="vertical" onFinish={handleForgotPassword} style={{ marginTop: 16 }}>
           <Form.Item
             name="email"
+            validateTrigger={['onBlur']}
             rules={[
               { required: true, message: 'Please enter your email' },
               { type: 'email', message: 'Invalid email' },

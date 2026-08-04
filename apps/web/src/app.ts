@@ -120,7 +120,7 @@ export async function getInitialState(): Promise<{
   return {
     currentUser: {
       name: username || 'Admin',
-      avatar: 'https://gw.alipayobjects.com/zos/antfincdn/XAosamN5UP/BiazfanxmamNRoxxVxka.png',
+      avatar: '/account.png',
       role: role || 'admin',
     },
   };
