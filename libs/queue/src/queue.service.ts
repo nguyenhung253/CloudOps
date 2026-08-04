@@ -1,9 +1,9 @@
 import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
 import { JobsOptions, Queue } from 'bullmq';
 import type Redis from 'ioredis';
-import { CLOUDOPS_QUEUE_NAME, type QueueJobName } from './constants';
+import { CLOUDOPS_QUEUE_NAME, NOTIFICATION_QUEUE_NAME, QUEUE_JOB_NAMES, type QueueJobName } from './constants';
 import { createRedisConnection } from './redis.connection';
-import type { QueueJobPayload } from './types';
+import type { QueueJobPayload, NotificationDeliveryPayload } from './types';
 
 export interface EnqueueJobOptions {
   /** BullMQ job id — defaults to jobId for idempotent re-enqueue. */
@@ -19,6 +19,7 @@ export class QueueService implements OnModuleDestroy {
   private readonly logger = new Logger(QueueService.name);
   private readonly connection: Redis;
   private readonly queue: Queue<QueueJobPayload>;
+  private readonly notificationQueue: Queue<NotificationDeliveryPayload>;
 
   constructor() {
     this.connection = createRedisConnection();
@@ -31,6 +32,18 @@ export class QueueService implements OnModuleDestroy {
         backoff: {
           type: 'exponential',
           delay: 2000,
+        },
+      },
+    });
+    this.notificationQueue = new Queue<NotificationDeliveryPayload>(NOTIFICATION_QUEUE_NAME, {
+      connection: this.connection,
+      defaultJobOptions: {
+        removeOnComplete: 200,
+        removeOnFail: 100,
+        attempts: 5,
+        backoff: {
+          type: 'exponential',
+          delay: 3000,
         },
       },
     });
@@ -125,6 +138,27 @@ export class QueueService implements OnModuleDestroy {
   }
 
   /**
+   * Enqueue a notification delivery job onto the dedicated notifications queue.
+   * The worker will pick up the deliveryId, load the record from DB, and send.
+   */
+  async enqueueNotification(
+    deliveryId: string,
+    options: { priority?: number; delayMs?: number } = {},
+  ) {
+    const job = await this.notificationQueue.add(
+      QUEUE_JOB_NAMES.NOTIFICATION_DELIVERY,
+      { deliveryId },
+      {
+        jobId: `notif-delivery-${deliveryId}`,
+        priority: options.priority,
+        delay: options.delayMs,
+      },
+    );
+    this.logger.debug(`Enqueued notification delivery deliveryId=${deliveryId} bullId=${job.id}`);
+    return job;
+  }
+
+  /**
    * Remove a BullMQ Job Scheduler by key.
    */
   async removeScheduler(key: string): Promise<void> {
@@ -139,6 +173,7 @@ export class QueueService implements OnModuleDestroy {
 
   async onModuleDestroy() {
     await this.queue.close();
+    await this.notificationQueue.close();
     this.connection.disconnect();
   }
 

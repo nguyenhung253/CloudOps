@@ -20,9 +20,30 @@ export const MVP_EC2_METRIC_NAMES = [
   'StatusCheckFailed',
   'DiskReadBytes',
   'DiskWriteBytes',
+  'mem_used_percent',
+  'disk_used_percent',
 ] as const;
 
 export type MvpEc2MetricName = (typeof MVP_EC2_METRIC_NAMES)[number];
+
+const METRIC_CONFIGS: Record<
+  string,
+  {
+    namespace: string;
+    metricName: string;
+    stat: string;
+    unit: string;
+  }
+> = {
+  CPUUtilization: { namespace: 'AWS/EC2', metricName: 'CPUUtilization', stat: 'Average', unit: 'Percent' },
+  NetworkIn: { namespace: 'AWS/EC2', metricName: 'NetworkIn', stat: 'Average', unit: 'Bytes' },
+  NetworkOut: { namespace: 'AWS/EC2', metricName: 'NetworkOut', stat: 'Average', unit: 'Bytes' },
+  StatusCheckFailed: { namespace: 'AWS/EC2', metricName: 'StatusCheckFailed', stat: 'Maximum', unit: 'Count' },
+  DiskReadBytes: { namespace: 'AWS/EC2', metricName: 'DiskReadBytes', stat: 'Average', unit: 'Bytes' },
+  DiskWriteBytes: { namespace: 'AWS/EC2', metricName: 'DiskWriteBytes', stat: 'Average', unit: 'Bytes' },
+  mem_used_percent: { namespace: 'CWAgent', metricName: 'mem_used_percent', stat: 'Average', unit: 'Percent' },
+  disk_used_percent: { namespace: 'CWAgent', metricName: 'used_percent', stat: 'Average', unit: 'Percent' },
+};
 
 @Injectable()
 export class AwsCloudWatchAdapter {
@@ -43,7 +64,7 @@ export class AwsCloudWatchAdapter {
   }
 
   /**
-   * Fetch EC2 CloudWatch metrics for an instance ID.
+   * Fetch EC2 CloudWatch metrics (both AWS/EC2 and CWAgent namespaces) for an instance ID.
    */
   async getEc2Metrics(params: {
     credentials?: AssumedCredentials;
@@ -65,23 +86,26 @@ export class AwsCloudWatchAdapter {
       const client = this.createClient(region, credentials);
 
       const metricQueries: MetricDataQuery[] = MVP_EC2_METRIC_NAMES.map(
-        (metricName, idx) => ({
-          Id: `m_${idx}_${metricName.toLowerCase()}`,
-          MetricStat: {
-            Metric: {
-              Namespace: 'AWS/EC2',
-              MetricName: metricName,
-              Dimensions: [
-                {
-                  Name: 'InstanceId',
-                  Value: instanceId,
-                },
-              ],
+        (metricKey, idx) => {
+          const cfg = METRIC_CONFIGS[metricKey];
+          return {
+            Id: `m_${idx}_${metricKey.toLowerCase().replace(/[^a-z0-9_]/g, '_')}`,
+            MetricStat: {
+              Metric: {
+                Namespace: cfg.namespace,
+                MetricName: cfg.metricName,
+                Dimensions: [
+                  {
+                    Name: 'InstanceId',
+                    Value: instanceId,
+                  },
+                ],
+              },
+              Period: period,
+              Stat: cfg.stat,
             },
-            Period: period,
-            Stat: metricName === 'StatusCheckFailed' ? 'Maximum' : 'Average',
-          },
-        }),
+          };
+        },
       );
 
       const command = new GetMetricDataCommand({
@@ -95,16 +119,18 @@ export class AwsCloudWatchAdapter {
 
       if (response.MetricDataResults) {
         for (const res of response.MetricDataResults) {
-          const matchingName = MVP_EC2_METRIC_NAMES.find((m) =>
-            res.Id?.endsWith(m.toLowerCase()),
+          const matchingKey = MVP_EC2_METRIC_NAMES.find((m) =>
+            res.Id?.endsWith(m.toLowerCase().replace(/[^a-z0-9_]/g, '_')),
           );
-          if (!matchingName || !res.Timestamps || !res.Values) continue;
+          if (!matchingKey || !res.Timestamps || !res.Values) continue;
 
+          const cfg = METRIC_CONFIGS[matchingKey];
           for (let i = 0; i < res.Timestamps.length; i++) {
             results.push({
-              metricName: matchingName,
+              metricName: matchingKey,
               timestamp: res.Timestamps[i],
               value: res.Values[i] ?? 0,
+              unit: cfg.unit,
             });
           }
         }
@@ -151,6 +177,20 @@ export class AwsCloudWatchAdapter {
       });
 
       points.push({
+        metricName: 'mem_used_percent',
+        timestamp: ts,
+        value: Number((42 + randomFactor * 35).toFixed(2)),
+        unit: 'Percent',
+      });
+
+      points.push({
+        metricName: 'disk_used_percent',
+        timestamp: ts,
+        value: Number((38 + randomFactor * 25).toFixed(2)),
+        unit: 'Percent',
+      });
+
+      points.push({
         metricName: 'NetworkIn',
         timestamp: ts,
         value: Number((1024 * 50 + randomFactor * 1024 * 200).toFixed(0)),
@@ -164,7 +204,6 @@ export class AwsCloudWatchAdapter {
         unit: 'Bytes',
       });
 
-      // Occasionally inject a status check failure (10% chance) for demo realism
       const statusCheckFailure = randomFactor < 0.1 ? 1 : 0;
       points.push({
         metricName: 'StatusCheckFailed',

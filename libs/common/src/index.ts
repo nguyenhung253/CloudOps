@@ -9,3 +9,5 @@ export * from './filters/global-exception.filter';
 export * from './interceptors/response.interceptor';
 export * from './middleware/request-id.middleware';
 export * from './logging/log-context';
+export * from './email/email.service';
+export * from './email/email.module';

@@ -8,6 +8,74 @@ import { tagsToRecord } from './aws-tags.util';
 export { tagsToRecord } from './aws-tags.util';
 
 /**
+ * Instance type → memory in MiB.
+ * Covers common t3/t2/m5/c5 families. Extended on demand.
+ */
+const INSTANCE_MEMORY_MIB: Record<string, number> = {
+  't3.nano': 512,
+  't3.micro': 1024,
+  't3.small': 2048,
+  't3.medium': 4096,
+  't3.large': 8192,
+  't3.xlarge': 16384,
+  't3.2xlarge': 32768,
+  't2.nano': 512,
+  't2.micro': 1024,
+  't2.small': 2048,
+  't2.medium': 4096,
+  't2.large': 8192,
+  't2.xlarge': 16384,
+  't2.2xlarge': 32768,
+  'm5.large': 8192,
+  'm5.xlarge': 16384,
+  'm5.2xlarge': 32768,
+  'm5.4xlarge': 65536,
+  'c5.large': 4096,
+  'c5.xlarge': 8192,
+  'c5.2xlarge': 16384,
+  'c5.4xlarge': 32768,
+  'm6i.large': 8192,
+  'm6i.xlarge': 16384,
+  'm6i.2xlarge': 32768,
+  'c6i.large': 4096,
+  'c6i.xlarge': 8192,
+  'c6i.2xlarge': 16384,
+  't4g.nano': 512,
+  't4g.micro': 1024,
+  't4g.small': 2048,
+  't4g.medium': 4096,
+};
+
+function lookupMemory(instanceType?: string | null): number | null {
+  if (!instanceType) return null;
+  const exact = INSTANCE_MEMORY_MIB[instanceType];
+  if (exact !== undefined) return exact;
+  // Fuzzy match: strip trailing variants like "t3.medium.search"
+  const base = instanceType.split('.').slice(0, 3).join('.');
+  return INSTANCE_MEMORY_MIB[base] ?? null;
+}
+
+/**
+ * Default root EBS volume size in GB.
+ * Real values depend on AMI/launch config — this is a reasonable
+ * display default when CloudWatch Agent is not installed.
+ */
+const INSTANCE_DEFAULT_DISK_GB: Record<string, number> = {
+  't3.nano': 8, 't3.micro': 8, 't3.small': 8, 't3.medium': 8, 't3.large': 8,
+  't2.nano': 8, 't2.micro': 8, 't2.small': 8, 't2.medium': 8, 't2.large': 8,
+  'm5.large': 30, 'm5.xlarge': 30, 'm5.2xlarge': 30,
+  'c5.large': 30, 'c5.xlarge': 30, 'c5.2xlarge': 30,
+};
+
+function lookupDiskGb(instanceType?: string | null): number | null {
+  if (!instanceType) return null;
+  const exact = INSTANCE_DEFAULT_DISK_GB[instanceType];
+  if (exact !== undefined) return exact;
+  const base = instanceType.split('.').slice(0, 3).join('.');
+  return INSTANCE_DEFAULT_DISK_GB[base] ?? 8;
+}
+
+/**
  * Normalize a single AWS EC2 Instance into the shared CloudResourceSnapshot model.
  */
 export function normalizeEc2Instance(
@@ -32,6 +100,8 @@ export function normalizeEc2Instance(
     tags,
     metadata: {
       instanceType: instance.InstanceType ?? null,
+      memoryMib: lookupMemory(instance.InstanceType),
+      diskTotalGb: lookupDiskGb(instance.InstanceType),
       stateCode: instance.State?.Code ?? null,
       stateReason: instance.StateReason?.Message ?? null,
       vpcId: instance.VpcId ?? null,
