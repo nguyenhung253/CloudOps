@@ -269,7 +269,7 @@ const Alerts: React.FC = () => {
       {/* Detail Modal */}
       <Modal
         title={
-          <span style={{ color: '#fff', fontSize: 18 }}>
+          <span style={{ color: '#e5e5e7', fontSize: 18, fontWeight: 600 }}>
             <AlertOutlined style={{ marginRight: 8, color: '#ff4d4f' }} />
             {activeAlert?.title}
           </span>
@@ -285,74 +285,74 @@ const Alerts: React.FC = () => {
         width={640}
       >
         {activeAlert && (
-          <div style={{ color: '#e0e0e0', marginTop: 16 }}>
+          <div style={{ color: '#c7c7cc', marginTop: 16 }}>
             <div style={{ marginBottom: 12 }}>
-              <span style={{ color: '#8c8c8c' }}>Severity: </span>
+              <span style={{ color: '#8e8e93' }}>Severity: </span>
               <Tag color={severityConfig[activeAlert.severity]?.color ?? 'default'}>
                 {activeAlert.severity}
               </Tag>
-              <span style={{ color: '#8c8c8c', marginLeft: 24 }}>Status: </span>
+              <span style={{ color: '#8e8e93', marginLeft: 24 }}>Status: </span>
               <Tag color={activeAlert.status === 'RESOLVED' ? 'green' : activeAlert.status === 'ACKNOWLEDGED' ? 'blue' : 'red'}>
                 {activeAlert.status}
               </Tag>
             </div>
 
             <div style={{ marginBottom: 8 }}>
-              <span style={{ color: '#8c8c8c' }}>Rule: </span>
-              <strong style={{ color: '#fff' }}>{activeAlert.alertRule?.name ?? '—'}</strong>
+              <span style={{ color: '#8e8e93' }}>Rule: </span>
+              <strong style={{ color: '#c7c7cc', fontWeight: 500 }}>{activeAlert.alertRule?.name ?? '—'}</strong>
             </div>
 
             {activeAlert.resource && (
               <div style={{ marginBottom: 8 }}>
-                <span style={{ color: '#8c8c8c' }}>Resource: </span>
-                <strong style={{ color: '#fff' }}>
+                <span style={{ color: '#8e8e93' }}>Resource: </span>
+                <strong style={{ color: '#c7c7cc', fontWeight: 500 }}>
                   {activeAlert.resource.name} ({activeAlert.resource.resourceType})
                 </strong>
               </div>
             )}
 
             <div style={{ marginBottom: 8 }}>
-              <span style={{ color: '#8c8c8c' }}>First Triggered: </span>
-              <strong style={{ color: '#fff' }}>{new Date(activeAlert.firstTriggeredAt).toLocaleString()}</strong>
+              <span style={{ color: '#8e8e93' }}>First Triggered: </span>
+              <strong style={{ color: '#c7c7cc', fontWeight: 500 }}>{new Date(activeAlert.firstTriggeredAt).toLocaleString()}</strong>
             </div>
             <div style={{ marginBottom: 8 }}>
-              <span style={{ color: '#8c8c8c' }}>Last Triggered: </span>
-              <strong style={{ color: '#fff' }}>{new Date(activeAlert.lastTriggeredAt).toLocaleString()}</strong>
+              <span style={{ color: '#8e8e93' }}>Last Triggered: </span>
+              <strong style={{ color: '#c7c7cc', fontWeight: 500 }}>{new Date(activeAlert.lastTriggeredAt).toLocaleString()}</strong>
             </div>
 
             {activeAlert.observedValue !== null && (
               <div style={{ marginBottom: 8 }}>
-                <span style={{ color: '#8c8c8c' }}>Observed Value: </span>
+                <span style={{ color: '#8e8e93' }}>Observed Value: </span>
                 <code style={{ color: '#ff7a45' }}>{activeAlert.observedValue}</code>
-                <span style={{ color: '#8c8c8c', marginLeft: 16 }}>Threshold: </span>
+                <span style={{ color: '#8e8e93', marginLeft: 16 }}>Threshold: </span>
                 <code style={{ color: '#ff7a45' }}>{activeAlert.thresholdValue ?? '—'}</code>
               </div>
             )}
 
             {activeAlert.acknowledger && (
               <div style={{ marginBottom: 8 }}>
-                <span style={{ color: '#8c8c8c' }}>Acknowledged by: </span>
-                <strong style={{ color: '#fff' }}>{activeAlert.acknowledger.fullName}</strong>
-                <span style={{ color: '#595959', marginLeft: 8 }}>
+                <span style={{ color: '#8e8e93' }}>Acknowledged by: </span>
+                <strong style={{ color: '#c7c7cc', fontWeight: 500 }}>{activeAlert.acknowledger.fullName}</strong>
+                <span style={{ color: '#777777', marginLeft: 8 }}>
                   {activeAlert.acknowledgedAt ? new Date(activeAlert.acknowledgedAt).toLocaleString() : ''}
                 </span>
               </div>
             )}
             {activeAlert.resolver && (
               <div style={{ marginBottom: 8 }}>
-                <span style={{ color: '#8c8c8c' }}>Resolved by: </span>
-                <strong style={{ color: '#fff' }}>{activeAlert.resolver.fullName}</strong>
-                <span style={{ color: '#595959', marginLeft: 8 }}>
+                <span style={{ color: '#8e8e93' }}>Resolved by: </span>
+                <strong style={{ color: '#c7c7cc', fontWeight: 500 }}>{activeAlert.resolver.fullName}</strong>
+                <span style={{ color: '#777777', marginLeft: 8 }}>
                   {activeAlert.resolvedAt ? new Date(activeAlert.resolvedAt).toLocaleString() : ''}
                 </span>
               </div>
             )}
 
             <div style={{ marginTop: 20 }}>
-              <Typography.Title level={5} style={{ color: '#fff', marginTop: 0 }}>Alert Message</Typography.Title>
+              <Typography.Title level={5} style={{ color: '#e5e5e7', marginTop: 0, marginBottom: 8 }}>Alert Message</Typography.Title>
               <div style={{
                 padding: 12, backgroundColor: '#121212', border: '1px solid #333',
-                borderRadius: 6, fontSize: 13, whiteSpace: 'pre-wrap',
+                borderRadius: 6, fontSize: 13, whiteSpace: 'pre-wrap', color: '#c7c7cc',
               }}>
                 {activeAlert.message}
               </div>
