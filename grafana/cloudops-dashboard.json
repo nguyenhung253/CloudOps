@@ -1,0 +1,205 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": "-- Grafana --",
+        "enable": true,
+        "hide": true,
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "liveNow": false,
+  "panels": [
+    {
+      "collapsed": false,
+      "gridPos": { "h": 2, "w": 24, "x": 0, "y": 0 },
+      "id": 1,
+      "title": "CloudOps Core API & Service Performance",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": { "color": { "mode": "thresholds" }, "unit": "reqps" },
+        "overrides": []
+      },
+      "gridPos": { "h": 6, "w": 8, "x": 0, "y": 2 },
+      "id": 2,
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "statFontColor": "value" },
+      "pluginVersion": "10.0.0",
+      "targets": [
+        {
+          "expr": "sum(rate(http_requests_total[5m]))",
+          "legendFormat": "API QPS",
+          "refId": "A"
+        }
+      ],
+      "title": "API Request Rate (QPS)",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": { "color": { "mode": "palette-classic" }, "unit": "s" },
+        "overrides": []
+      },
+      "gridPos": { "h": 6, "w": 8, "x": 8, "y": 2 },
+      "id": 3,
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket[5m])) by (le))",
+          "legendFormat": "p95 Latency",
+          "refId": "A"
+        }
+      ],
+      "title": "API p95 Latency",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "red", "value": 1 }
+            ]
+          },
+          "unit": "percent"
+        }
+      },
+      "gridPos": { "h": 6, "w": 8, "x": 16, "y": 2 },
+      "id": 4,
+      "targets": [
+        {
+          "expr": "sum(rate(http_requests_total{status=~\"5..\"}[5m])) / sum(rate(http_requests_total[5m])) * 100",
+          "legendFormat": "5xx Error Rate",
+          "refId": "A"
+        }
+      ],
+      "title": "API 5xx Error Rate (%)",
+      "type": "stat"
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 2, "w": 24, "x": 0, "y": 8 },
+      "id": 5,
+      "title": "BullMQ Queue & Worker Execution Pool",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "short" } },
+      "gridPos": { "h": 6, "w": 12, "x": 0, "y": 10 },
+      "id": 6,
+      "targets": [
+        {
+          "expr": "cloudops_queue_active_jobs",
+          "legendFormat": "Active Jobs",
+          "refId": "A"
+        },
+        {
+          "expr": "cloudops_queue_waiting_jobs",
+          "legendFormat": "Waiting Jobs",
+          "refId": "B"
+        },
+        {
+          "expr": "cloudops_queue_failed_jobs",
+          "legendFormat": "Failed Jobs",
+          "refId": "C"
+        }
+      ],
+      "title": "Queue Job Status (BullMQ)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "short" } },
+      "gridPos": { "h": 6, "w": 12, "x": 12, "y": 10 },
+      "id": 7,
+      "targets": [
+        {
+          "expr": "cloudops_worker_count{status=\"ACTIVE\"}",
+          "legendFormat": "Active Worker Nodes",
+          "refId": "A"
+        }
+      ],
+      "title": "Active Worker Pool Count",
+      "type": "stat"
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 2, "w": 24, "x": 0, "y": 16 },
+      "id": 8,
+      "title": "AWS EC2 & CloudWatch Agent Telemetry",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "max": 100, "min": 0, "unit": "percent" } },
+      "gridPos": { "h": 7, "w": 8, "x": 0, "y": 18 },
+      "id": 9,
+      "targets": [
+        {
+          "expr": "cloudops_ec2_cpu_utilization_percent",
+          "legendFormat": "{{instance_id}} (CPU)",
+          "refId": "A"
+        }
+      ],
+      "title": "EC2 CPU Utilization (%)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "max": 100, "min": 0, "unit": "percent" } },
+      "gridPos": { "h": 7, "w": 8, "x": 8, "y": 18 },
+      "id": 10,
+      "targets": [
+        {
+          "expr": "cloudops_cw_agent_memory_percent",
+          "legendFormat": "{{instance_id}} (Memory)",
+          "refId": "A"
+        }
+      ],
+      "title": "Memory Usage % (CloudWatch Agent)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "max": 100, "min": 0, "unit": "percent" } },
+      "gridPos": { "h": 7, "w": 8, "x": 16, "y": 18 },
+      "id": 11,
+      "targets": [
+        {
+          "expr": "cloudops_cw_agent_disk_percent",
+          "legendFormat": "{{instance_id}} (Disk)",
+          "refId": "A"
+        }
+      ],
+      "title": "Disk Usage % (CloudWatch Agent)",
+      "type": "timeseries"
+    }
+  ],
+  "refresh": "10s",
+  "schemaVersion": 38,
+  "style": "dark",
+  "tags": ["cloudops", "aws", "prometheus", "telemetry"],
+  "time": { "from": "now-1h", "to": "now" },
+  "timepicker": {
+    "refresh_intervals": ["5s", "10s", "30s", "1m", "5m"]
+  },
+  "timezone": "browser",
+  "title": "CloudOps Platform Overview",
+  "uid": "cloudops-overview",
+  "version": 1
+}
