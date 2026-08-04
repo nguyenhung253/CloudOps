@@ -19,6 +19,9 @@ import {
   Popconfirm,
   message,
   Typography,
+  Table,
+  Spin,
+  Divider,
 } from 'antd';
 import {
   CloudOutlined,
@@ -39,6 +42,9 @@ import {
   DeleteOutlined,
   ThunderboltOutlined,
   KeyOutlined,
+  BugOutlined,
+  SyncOutlined,
+  InfoCircleOutlined,
 } from '@ant-design/icons';
 import { PageContainer } from '@ant-design/pro-components';
 import { request } from '@umijs/max';
@@ -82,6 +88,55 @@ const REQUIRED_POLICY_JSON = JSON.stringify(
   2,
 );
 
+interface NotificationPreferenceItem {
+  source: string;
+  channels: {
+    EMAIL: boolean;
+    IN_APP: boolean;
+  };
+}
+
+const SOURCE_META: Record<
+  string,
+  { title: string; icon: React.ReactNode; color: string; description: string; examples: string }
+> = {
+  INCIDENT: {
+    title: 'Incident Notifications',
+    icon: <BugOutlined style={{ color: '#e26f54', fontSize: 16 }} />,
+    color: '#e26f54',
+    description: 'Critical & high-priority security and operational incidents',
+    examples: 'Incident Created, Incident Resolved, Incident Escalated',
+  },
+  MONITORING: {
+    title: 'Resource Health & Monitoring',
+    icon: <WarningOutlined style={{ color: '#faad14', fontSize: 16 }} />,
+    color: '#faad14',
+    description: 'EC2, RDS, ALB health state changes & metric threshold alerts',
+    examples: 'EC2 unhealthy, RDS status changed, Disk/Memory > 90%',
+  },
+  JOB: {
+    title: 'Job / Queue Notifications',
+    icon: <SyncOutlined style={{ color: '#1890ff', fontSize: 16 }} />,
+    color: '#1890ff',
+    description: 'Background worker jobs, retry attempts, and queue status',
+    examples: 'Job Failed, Job Retry, Queue Stalled, Worker Offline',
+  },
+  CLOUD_ACCOUNT: {
+    title: 'Cloud Account Notifications',
+    icon: <CloudOutlined style={{ color: '#13c2c2', fontSize: 16 }} />,
+    color: '#13c2c2',
+    description: 'AWS credentials expiration, STS AssumeRole, and sync issues',
+    examples: 'AWS Credential Expired, STS AssumeRole Failed, Sync Failed',
+  },
+  SYSTEM: {
+    title: 'System Notifications',
+    icon: <InfoCircleOutlined style={{ color: '#722ed1', fontSize: 16 }} />,
+    color: '#722ed1',
+    description: 'Platform deployments, scheduled maintenance, and backup alerts',
+    examples: 'Deployment Completed, Maintenance Scheduled, Backup Failed',
+  },
+};
+
 /* ------------------------------------------------------------------ */
 /*  Component                                                          */
 /* ------------------------------------------------------------------ */
@@ -94,6 +149,9 @@ const Settings: React.FC = () => {
   const [saving, setSaving] = useState(false);
   const [updateModalOpen, setUpdateModalOpen] = useState(false);
   const [policyModalOpen, setPolicyModalOpen] = useState(false);
+
+  const [prefLoading, setPrefLoading] = useState(false);
+  const [preferences, setPreferences] = useState<NotificationPreferenceItem[]>([]);
 
   const [form] = Form.useForm();
   const [updateForm] = Form.useForm();
@@ -115,9 +173,57 @@ const Settings: React.FC = () => {
     }
   }, []);
 
+  const fetchPreferences = useCallback(async () => {
+    setPrefLoading(true);
+    try {
+      const res = await request('/api/v1/notifications/preferences');
+      const data = res?.data ?? res;
+      if (Array.isArray(data)) {
+        setPreferences(data);
+      }
+    } catch {
+      // Non-blocking
+    } finally {
+      setPrefLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     fetchControlPlane();
   }, [fetchControlPlane]);
+
+  useEffect(() => {
+    if (activeTab === 'notifications') {
+      fetchPreferences();
+    }
+  }, [activeTab, fetchPreferences]);
+
+  const handleTogglePreference = async (source: string, channel: 'EMAIL' | 'IN_APP', enabled: boolean) => {
+    try {
+      await request('/api/v1/notifications/preferences', {
+        method: 'POST',
+        data: { source, channel, enabled },
+      });
+      message.success(`Preference updated for ${SOURCE_META[source]?.title || source}`);
+      setPreferences((prev) =>
+        prev.map((item) => {
+          if (item.source === source) {
+            return {
+              ...item,
+              channels: {
+                ...item.channels,
+                [channel]: enabled,
+              },
+            };
+          }
+          return item;
+        }),
+      );
+    } catch {
+      message.error('Failed to update preference');
+    }
+  };
+
 
   /* ---- Actions ---- */
 
@@ -532,7 +638,101 @@ const Settings: React.FC = () => {
           }
           key="notifications"
         >
-          <Card bordered={false} style={{ backgroundColor: '#1c1c1c', border: '1px solid #262626', borderRadius: '8px' }}>
+          {/* Card 1: Notification Preferences Matrix */}
+          <Card
+            title={
+              <Space>
+                <BellOutlined style={{ color: '#e26f54' }} />
+                <span style={{ color: '#fff', fontWeight: 600 }}>Notification Preferences</span>
+              </Space>
+            }
+            bordered={false}
+            style={{ backgroundColor: '#1c1c1c', border: '1px solid #262626', borderRadius: '8px', marginBottom: 16 }}
+          >
+            <Paragraph style={{ color: '#8c8c8c', fontSize: '13px', marginBottom: 20 }}>
+              Control which notification channels (In-App & Email) are enabled for each notification event source.
+            </Paragraph>
+
+            <Spin spinning={prefLoading}>
+              <Table
+                dataSource={preferences}
+                rowKey="source"
+                pagination={false}
+                style={{ backgroundColor: 'transparent' }}
+                columns={[
+                  {
+                    title: 'Notification Event Source',
+                    dataIndex: 'source',
+                    key: 'source',
+                    render: (source: string) => {
+                      const meta = SOURCE_META[source] || {
+                        title: source,
+                        icon: <BellOutlined />,
+                        description: 'System events',
+                        examples: '',
+                      };
+                      return (
+                        <Space align="start" size={12}>
+                          <div style={{ marginTop: 2 }}>{meta.icon}</div>
+                          <div>
+                            <Text strong style={{ color: '#fff', fontSize: '14px' }}>
+                              {meta.title}
+                            </Text>
+                            <div style={{ color: '#8c8c8c', fontSize: '12px', marginTop: 2 }}>
+                              {meta.description}
+                            </div>
+                            {meta.examples && (
+                              <div style={{ color: '#555', fontSize: '11px', marginTop: 2 }}>
+                                Examples: {meta.examples}
+                              </div>
+                            )}
+                          </div>
+                        </Space>
+                      );
+                    },
+                  },
+                  {
+                    title: 'In-App Notification (🔔)',
+                    key: 'inApp',
+                    width: 200,
+                    align: 'center',
+                    render: (_, record: NotificationPreferenceItem) => (
+                      <Switch
+                        checked={record.channels?.IN_APP ?? true}
+                        onChange={(checked) => handleTogglePreference(record.source, 'IN_APP', checked)}
+                        disabled={!isWritable}
+                      />
+                    ),
+                  },
+                  {
+                    title: 'Email Notification (✉️)',
+                    key: 'email',
+                    width: 200,
+                    align: 'center',
+                    render: (_, record: NotificationPreferenceItem) => (
+                      <Switch
+                        checked={record.channels?.EMAIL ?? false}
+                        onChange={(checked) => handleTogglePreference(record.source, 'EMAIL', checked)}
+                        disabled={!isWritable}
+                      />
+                    ),
+                  },
+                ]}
+              />
+            </Spin>
+          </Card>
+
+          {/* Card 2: Notification Gateway Config */}
+          <Card
+            title={
+              <Space>
+                <SettingOutlined style={{ color: '#1890ff' }} />
+                <span style={{ color: '#fff', fontWeight: 600 }}>Notification Gateway Credentials</span>
+              </Space>
+            }
+            bordered={false}
+            style={{ backgroundColor: '#1c1c1c', border: '1px solid #262626', borderRadius: '8px' }}
+          >
             <Form layout="vertical" initialValues={{ smtpHost: 'smtp.mailgun.org', smtpPort: 587, webhookUrl: '' }}>
               <Form.Item label={<span style={{ color: '#d9d9d9' }}>Slack Alert Webhook URL</span>} name="webhookUrl">
                 <Input placeholder="https://hooks.slack.com/services/..." />

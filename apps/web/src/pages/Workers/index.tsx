@@ -120,9 +120,9 @@ const Workers: React.FC = () => {
       key: 'activeJobs',
       width: 110,
       render: (count: number) => (
-        <Badge count={count} showZero={false} overflowCount={99} style={{ backgroundColor: '#ff5722' }}>
-          <span style={{ color: '#d9d9d9', marginLeft: 8 }}>{count}</span>
-        </Badge>
+        <Tag color={count > 0 ? 'volcano' : 'default'} style={{ borderRadius: 10, fontWeight: 600 }}>
+          {count} active
+        </Tag>
       ),
     },
     {

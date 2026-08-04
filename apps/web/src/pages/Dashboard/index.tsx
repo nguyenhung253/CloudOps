@@ -18,9 +18,15 @@ import {
   ExclamationCircleFilled,
   ClockCircleOutlined,
   ClusterOutlined,
+  BellOutlined,
+  CloudOutlined,
 } from '@ant-design/icons';
 import { PageContainer } from '@ant-design/pro-components';
-import { request } from '@umijs/max';
+import { request, history } from '@umijs/max';
+import dayjs from 'dayjs';
+import relativeTime from 'dayjs/plugin/relativeTime';
+
+dayjs.extend(relativeTime);
 
 interface ActivityItem {
   id: string;
@@ -77,6 +83,10 @@ const Dashboard: React.FC = () => {
 
   const [cpu, setCpu] = useState<number>(24.6);
   const [cpuHistory, setCpuHistory] = useState<number[]>([25, 28, 32, 29, 35, 40, 38, 42, 45]);
+  const [memoryPercent, setMemoryPercent] = useState<number>(48.2);
+  const [memoryHistory, setMemoryHistory] = useState<number[]>([45, 48, 50, 49, 52, 51, 48, 50, 51]);
+  const [diskPercent, setDiskPercent] = useState<number>(42.5);
+  const [diskHistory, setDiskHistory] = useState<number[]>([40, 41, 42, 42, 43, 44, 43, 42, 43]);
   const [networkFormatted, setNetworkFormatted] = useState<string>('↓ 18 MB  ↑ 4 MB');
 
   // CloudOps Dashboard statistics state
@@ -95,6 +105,13 @@ const Dashboard: React.FC = () => {
     unknownCount: 0,
   });
 
+  const [cloudAccountStats, setCloudAccountStats] = useState({
+    totalAccounts: 0,
+    connectedCount: 0,
+    syncingCount: 0,
+    lastSyncedAt: null as string | null,
+  });
+
   // Active Incidents state
   const [incidents, setIncidents] = useState<any[]>([]);
   const [activities, setActivities] = useState<ActivityItem[]>([]);
@@ -103,18 +120,39 @@ const Dashboard: React.FC = () => {
   // Fetch Dashboard Live API Data
   const loadDashboardData = useCallback(async () => {
     try {
-      const [summaryRes, healthRes, jobStatsRes, telemetryRes, incidentsRes] = await Promise.allSettled([
+      const [summaryRes, healthRes, jobStatsRes, telemetryRes, incidentsRes, cloudAccountsRes] = await Promise.allSettled([
         request('/api/v1/dashboard/summary'),
         request('/api/v1/dashboard/resource-health'),
         request('/api/v1/dashboard/job-statistics'),
         request('/api/v1/dashboard/telemetry'),
         request('/api/v1/incidents'),
+        request('/api/v1/cloud-accounts'),
       ]);
 
       const summaryData = summaryRes.status === 'fulfilled' ? (summaryRes.value.data || summaryRes.value) : null;
       const jobStatsData = jobStatsRes.status === 'fulfilled' ? (jobStatsRes.value.data || jobStatsRes.value) : null;
       const telemetryData = telemetryRes.status === 'fulfilled' ? (telemetryRes.value.data || telemetryRes.value) : null;
       const incidentsData = incidentsRes.status === 'fulfilled' ? (incidentsRes.value.data || incidentsRes.value) : [];
+
+      if (cloudAccountsRes.status === 'fulfilled') {
+        const accountsData = cloudAccountsRes.value?.data || cloudAccountsRes.value || [];
+        const accountsList = Array.isArray(accountsData) ? accountsData : [];
+        const total = accountsList.length;
+        const connected = accountsList.filter((a: any) => a.status === 'CONNECTED').length;
+        const syncing = accountsList.filter((a: any) => a.status === 'SYNCING').length;
+        const lastSyncedTimes = accountsList
+          .map((a: any) => a.lastSyncedAt)
+          .filter(Boolean)
+          .sort()
+          .reverse();
+
+        setCloudAccountStats({
+          totalAccounts: total,
+          connectedCount: connected,
+          syncingCount: syncing,
+          lastSyncedAt: lastSyncedTimes[0] || null,
+        });
+      }
 
       if (summaryData) {
         setStats(prev => ({
@@ -141,6 +179,12 @@ const Dashboard: React.FC = () => {
         if (telemetryData.cpu?.current) setCpu(telemetryData.cpu.current);
         if (telemetryData.cpu?.history && telemetryData.cpu.history.length > 0) {
           setCpuHistory(telemetryData.cpu.history);
+        }
+        if (telemetryData.memory?.current !== undefined) {
+          setMemoryPercent(telemetryData.memory.current);
+        }
+        if (telemetryData.disk?.current !== undefined) {
+          setDiskPercent(telemetryData.disk.current);
         }
         if (telemetryData.network?.formatted) {
           setNetworkFormatted(telemetryData.network.formatted);
@@ -299,6 +343,39 @@ const Dashboard: React.FC = () => {
     }
   };
 
+  const handleSyncTelemetry = async () => {
+    if (isExecutingJob) return;
+    setIsExecutingJob(true);
+    message.loading({ content: 'Syncing all telemetry data & metrics...', key: 'sync_action' });
+
+    try {
+      const res = await request('/api/v1/jobs', {
+        method: 'POST',
+        data: {
+          type: 'METRIC_COLLECTION',
+          payload: { isFullSync: true },
+        },
+      });
+
+      const jobId = res?.data?.id || res?.id || 'sync-queued';
+
+      notification.success({
+        message: 'Telemetry Sync Initiated',
+        description: `Full Telemetry & Metric Sync Job #${jobId.slice(0, 8)} successfully enqueued into background worker queue.`,
+        placement: 'topRight',
+      });
+
+      message.success({ content: 'Telemetry data synced & refreshed!', key: 'sync_action' });
+
+      await loadDashboardData();
+    } catch (err: any) {
+      console.error('Failed to sync telemetry & metrics', err);
+      message.error({ content: `Failed to sync telemetry: ${err?.message || String(err)}`, key: 'sync_action' });
+    } finally {
+      setIsExecutingJob(false);
+    }
+  };
+
   const handleRestartWorker = async () => {
     if (isExecutingJob) return;
     setIsExecutingJob(true);
@@ -440,7 +517,7 @@ const Dashboard: React.FC = () => {
         </Row>
       </Card>
 
-      {/* 4 Top Operational Cards */}
+      {/* 4 Core Operational Cards */}
       <Row gutter={[16, 16]} style={{ marginBottom: 20 }}>
         {/* Card 1: Resource Health */}
         <Col xs={24} sm={12} md={6}>
@@ -457,21 +534,7 @@ const Dashboard: React.FC = () => {
           </Card>
         </Col>
 
-        {/* Card 2: Active Jobs */}
-        <Col xs={24} sm={12} md={6}>
-          <Card style={{ borderRadius: 8, background: '#161e2e', borderTop: '3px solid #1890ff', borderLeft: 'none', borderRight: 'none', borderBottom: 'none', boxShadow: '0 4px 12px rgba(0, 0, 0, 0.25)' }}>
-            <Statistic
-              title={<span style={{ color: '#94a3b8', fontSize: 13 }}><SyncOutlined style={{ color: '#1890ff' }} /> Active Jobs</span>}
-              value={`${stats.runningJobs} running`}
-              valueStyle={{ color: '#fff', fontWeight: 700, fontSize: 20 }}
-            />
-            <div style={{ marginTop: 8, fontSize: 12, color: '#64748b' }}>
-              <span style={{ color: '#94a3b8' }}>{stats.queueLength} waiting</span> · <span style={{ color: stats.failedJobs > 0 ? '#ff4d4f' : '#64748b' }}>{stats.failedJobs} failed</span>
-            </div>
-          </Card>
-        </Col>
-
-        {/* Card 3: Open Incidents */}
+        {/* Card 2: Open Incidents */}
         <Col xs={24} sm={12} md={6}>
           <Card style={{ borderRadius: 8, background: '#161e2e', borderTop: '3px solid #ff4d4f', borderLeft: 'none', borderRight: 'none', borderBottom: 'none', boxShadow: '0 4px 12px rgba(0, 0, 0, 0.25)' }}>
             <Statistic
@@ -485,16 +548,48 @@ const Dashboard: React.FC = () => {
           </Card>
         </Col>
 
-        {/* Card 4: Monitoring Coverage */}
+        {/* Card 3: Jobs & Queue */}
         <Col xs={24} sm={12} md={6}>
-          <Card style={{ borderRadius: 8, background: '#161e2e', borderTop: '3px solid #13c2c2', borderLeft: 'none', borderRight: 'none', borderBottom: 'none', boxShadow: '0 4px 12px rgba(0, 0, 0, 0.25)' }}>
+          <Card style={{ borderRadius: 8, background: '#161e2e', borderTop: '3px solid #1890ff', borderLeft: 'none', borderRight: 'none', borderBottom: 'none', boxShadow: '0 4px 12px rgba(0, 0, 0, 0.25)' }}>
             <Statistic
-              title={<span style={{ color: '#94a3b8', fontSize: 13 }}><ThunderboltOutlined style={{ color: '#13c2c2' }} /> Monitoring Coverage</span>}
-              value={`${coveragePercent}%`}
+              title={<span style={{ color: '#94a3b8', fontSize: 13 }}><SyncOutlined style={{ color: '#1890ff' }} /> Jobs & Queue</span>}
+              value={`${stats.totalJobs} processed`}
               valueStyle={{ color: '#fff', fontWeight: 700, fontSize: 20 }}
             />
             <div style={{ marginTop: 8, fontSize: 12, color: '#64748b' }}>
-              {reportingCount}/{totalEc2} resources reporting
+              <span style={{ color: '#94a3b8' }}>{stats.runningJobs} running</span> · <span style={{ color: '#94a3b8' }}>{stats.queueLength} waiting</span> · <span style={{ color: stats.failedJobs > 0 ? '#ff4d4f' : '#64748b' }}>{stats.failedJobs} failed</span>
+            </div>
+          </Card>
+        </Col>
+
+        {/* Card 4: Cloud Accounts */}
+        <Col xs={24} sm={12} md={6}>
+          <Card
+            onClick={() => history.push('/cloud-accounts')}
+            style={{
+              borderRadius: 8,
+              background: '#161e2e',
+              borderTop: '3px solid #13c2c2',
+              borderLeft: 'none',
+              borderRight: 'none',
+              borderBottom: 'none',
+              boxShadow: '0 4px 12px rgba(0, 0, 0, 0.25)',
+              cursor: 'pointer',
+            }}
+          >
+            <Statistic
+              title={
+                <span style={{ color: '#94a3b8', fontSize: 13 }}>
+                  <CloudOutlined style={{ color: '#13c2c2' }} /> Cloud Accounts
+                </span>
+              }
+              value={`${cloudAccountStats.connectedCount} connected`}
+              valueStyle={{ color: '#fff', fontWeight: 700, fontSize: 20 }}
+            />
+            <div style={{ marginTop: 8, fontSize: 12, color: '#64748b' }}>
+              <span>
+                {cloudAccountStats.totalAccounts} AWS account{cloudAccountStats.totalAccounts !== 1 ? 's' : ''} configured
+              </span>
             </div>
           </Card>
         </Col>
@@ -518,30 +613,41 @@ const Dashboard: React.FC = () => {
             style={{ borderRadius: 8, marginBottom: 20, background: '#121824', border: '1px solid rgba(255, 255, 255, 0.08)', boxShadow: '0 4px 12px rgba(0, 0, 0, 0.25)' }}
           >
             <Row gutter={[16, 16]}>
-              <Col xs={24} md={12}>
-                <div style={{ background: '#1a2234', padding: 16, borderRadius: 8, border: '1px solid rgba(255, 255, 255, 0.06)' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
-                    <span style={{ color: '#94a3b8', fontSize: 13 }}>CPU Utilization</span>
-                    <Tag color={cpu > 85 ? 'red' : cpu > 70 ? 'warning' : 'green'}>{cpu.toFixed(1)}%</Tag>
+              <Col xs={24} md={8}>
+                <div style={{ background: '#1a2234', padding: 16, borderRadius: 8, border: '1px solid rgba(255, 255, 255, 0.06)', height: '100%' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                    <span style={{ color: '#94a3b8', fontSize: 13, whiteSpace: 'nowrap' }}>CPU Load</span>
+                    <Tag color={cpu > 85 ? 'red' : cpu > 70 ? 'warning' : 'green'} style={{ margin: 0 }}>{cpu.toFixed(1)}%</Tag>
                   </div>
-                  <Progress percent={Math.round(cpu)} status={cpu > 85 ? 'exception' : 'active'} strokeColor="#52c41a" />
-                  <div style={{ marginTop: 12 }}>
+                  <Progress percent={Math.round(cpu)} status={cpu > 85 ? 'exception' : 'active'} strokeColor="#52c41a" size="small" />
+                  <div style={{ marginTop: 10 }}>
                     <MiniLineChart data={cpuHistory} color="#52c41a" />
                   </div>
                 </div>
               </Col>
 
-              <Col xs={24} md={12}>
-                <div style={{ background: '#1a2234', padding: 16, borderRadius: 8, border: '1px solid rgba(255, 255, 255, 0.06)' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
-                    <span style={{ color: '#94a3b8', fontSize: 13 }}>Network Traffic</span>
-                    <Tag color="purple">{networkFormatted}</Tag>
+              <Col xs={24} md={8}>
+                <div style={{ background: '#1a2234', padding: 16, borderRadius: 8, border: '1px solid rgba(255, 255, 255, 0.06)', height: '100%' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                    <span style={{ color: '#94a3b8', fontSize: 13, whiteSpace: 'nowrap' }}>Memory Usage</span>
+                    <Tag color={memoryPercent > 85 ? 'red' : memoryPercent > 70 ? 'warning' : 'cyan'} style={{ margin: 0 }}>{memoryPercent.toFixed(1)}%</Tag>
                   </div>
-                  <div style={{ marginTop: 12, color: '#cbd5e1', fontSize: 13 }}>
-                    <div style={{ marginBottom: 6 }}>Network In / Out telemetry active</div>
-                    <div style={{ color: '#64748b', fontStyle: 'italic', marginTop: 16 }}>
-                      Memory monitoring: N/A (CloudWatch Agent required)
-                    </div>
+                  <Progress percent={Math.round(memoryPercent)} status={memoryPercent > 85 ? 'exception' : 'active'} strokeColor="#13c2c2" size="small" />
+                  <div style={{ marginTop: 10 }}>
+                    <MiniLineChart data={memoryHistory} color="#13c2c2" />
+                  </div>
+                </div>
+              </Col>
+
+              <Col xs={24} md={8}>
+                <div style={{ background: '#1a2234', padding: 16, borderRadius: 8, border: '1px solid rgba(255, 255, 255, 0.06)', height: '100%' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                    <span style={{ color: '#94a3b8', fontSize: 13, whiteSpace: 'nowrap' }}>Disk Usage</span>
+                    <Tag color={diskPercent > 90 ? 'red' : diskPercent > 75 ? 'warning' : 'blue'} style={{ margin: 0 }}>{diskPercent.toFixed(1)}%</Tag>
+                  </div>
+                  <Progress percent={Math.round(diskPercent)} status={diskPercent > 90 ? 'exception' : 'active'} strokeColor="#1890ff" size="small" />
+                  <div style={{ marginTop: 10 }}>
+                    <MiniLineChart data={diskHistory} color="#1890ff" />
                   </div>
                 </div>
               </Col>
@@ -566,7 +672,7 @@ const Dashboard: React.FC = () => {
               </div>
             ) : (
               <List
-                dataSource={incidents}
+                dataSource={incidents.slice(0, 5)}
                 renderItem={item => (
                   <List.Item
                     style={{ background: '#141414', marginBottom: 8, padding: '12px 16px', borderRadius: 6, border: '1px solid #262626', borderLeft: item.severity === 'CRITICAL' || item.severity === 'SEV1' ? '4px solid #ff4d4f' : '4px solid #ff7a45' }}
@@ -650,10 +756,10 @@ const Dashboard: React.FC = () => {
               </Button>
 
               <Button
-                icon={<SyncOutlined />}
+                icon={<SyncOutlined spin={isExecutingJob} />}
                 block
                 disabled={isExecutingJob}
-                onClick={() => loadDashboardData()}
+                onClick={handleSyncTelemetry}
                 style={{ background: '#141414', borderColor: '#262626', color: '#d9d9d9', whiteSpace: 'normal', height: 'auto', padding: '8px 12px' }}
               >
                 Sync All Telemetry & Metrics

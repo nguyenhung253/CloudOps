@@ -1,3 +1,8 @@
+// Fix BigInt JSON serialization issue globally
+(BigInt.prototype as any).toJSON = function () {
+  return Number(this);
+};
+
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { ValidationPipe } from '@nestjs/common';

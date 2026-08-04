@@ -5,6 +5,7 @@ import { LoggerModule } from 'nestjs-pino';
 import { DatabaseModule } from '@app/database';
 import { CloudProviderModule } from '@app/cloud-provider';
 import { QueueModule } from '@app/queue';
+import { EmailModule } from '@app/common';
 import { ResourcesService } from '@api/resources/resources.service';
 import { AuditLogsService } from '@api/audit-logs/audit-logs.service';
 import { JobLifecycleService } from './job-lifecycle.service';
@@ -20,6 +21,7 @@ import { MetricCollectionHandler } from './handlers/metric-collection.handler';
 import { ResourceHealthEvaluator } from './evaluators/resource-health.evaluator';
 import { NotificationDispatcher } from './services/notification-dispatcher.service';
 import { AutoIncidentService } from './services/auto-incident.service';
+import { NotificationDeliveryConsumer } from './notification-delivery.consumer';
 
 @Module({
   imports: [
@@ -52,6 +54,7 @@ import { AutoIncidentService } from './services/auto-incident.service';
     DatabaseModule,
     CloudProviderModule,
     QueueModule,
+    EmailModule,
   ],
   providers: [
     AuditLogsService,
@@ -62,6 +65,7 @@ import { AutoIncidentService } from './services/auto-incident.service';
     ResourceHealthEvaluator,
     NotificationDispatcher,
     AutoIncidentService,
+    NotificationDeliveryConsumer,
     ResourceSyncHandler,
     HealthCheckHandler,
     MetricCollectionHandler,

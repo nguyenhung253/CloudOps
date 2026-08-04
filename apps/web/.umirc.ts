@@ -89,18 +89,13 @@ export default defineConfig({
       path: '/notifications',
       component: './Notifications',
       icon: 'BellOutlined',
+      hideInMenu: true,
     },
     {
       name: 'Logs',
       path: '/logs',
       component: './Logs',
       icon: 'CodeOutlined',
-    },
-    {
-      name: 'Reports',
-      path: '/reports',
-      component: './Reports',
-      icon: 'BarChartOutlined',
     },
     {
       name: 'Telemetry',

@@ -764,6 +764,7 @@ model Notification {
   incidentId  String?                @map("incident_id") @db.Uuid
   jobId       String?                @map("job_id") @db.Uuid
   readStatus  NotificationReadStatus @default(UNREAD) @map("read_status")
+  readAt      DateTime?              @map("read_at") @db.Timestamptz
   createdAt   DateTime               @default(now()) @map("created_at") @db.Timestamptz
 
   deliveries NotificationDelivery[]
