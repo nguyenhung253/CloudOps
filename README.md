@@ -15,7 +15,7 @@
 
 <p align="center">
   <b>Nền tảng giám sát & vận hành hạ tầng cloud</b><br/>
-  Kết nối AWS · Khám phá tài nguyên · Thu thập metrics · Cảnh báo thông minh · Quản lý sự cố
+  Kết nối AWS · Khám phá tài nguyên · Thu thập metrics · Cảnh báo · Quản lý sự cố
 </p>
 
 ---
@@ -25,7 +25,7 @@
 - ** Kết nối Cloud** — Kết nối tài khoản AWS qua IAM Role, tự động kiểm tra kết nối
 - ** Khám phá tài nguyên** — Tự động phát hiện EC2, ALB, EBS và theo dõi thay đổi
 - ** Metrics & Monitoring** — Thu thập CloudWatch metrics (CPU, Memory, Disk, Network), hiển thị timeseries
-- ** Cảnh báo thông minh** — Alert rule dựa trên ngưỡng với cooldown, deduplication, và recovery threshold
+- ** Cảnh báo ** — Alert rule dựa trên ngưỡng với cooldown, deduplication, và recovery threshold
 - ** Quản lý sự cố** — Incident SEV1-SEV4 với timeline, evidence, root cause, auto-creation từ alert
 - ** Thông báo đa kênh** — In-app + Email + Slack + Webhook, cấu hình theo nguồn và kênh
 - ** Job & Schedule** — Background jobs qua BullMQ, lập lịch định kỳ cho sync và collection
@@ -158,7 +158,7 @@ pnpm dev
 | `pnpm db:push`                            | Push schema lên database          |
 | `pnpm seed:demo`                          | Seed dữ liệu mẫu                  |
 
-## 🛠 Tech Stack
+##  Tech Stack
 
 | Layer          | Công nghệ                                             |
 | -------------- | ----------------------------------------------------- |
