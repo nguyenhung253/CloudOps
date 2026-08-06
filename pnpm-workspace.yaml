@@ -1,3 +1,14 @@
 packages:
   - "apps/*"
   - "packages/*"
+allowBuilds:
+  '@prisma/engines': false
+  '@scarf/scarf': false
+  argon2: false
+  core-js: false
+  core-js-pure: false
+  es5-ext: false
+  esbuild: false
+  msgpackr-extract: false
+  prisma: false
+  unrs-resolver: false
