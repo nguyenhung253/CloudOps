@@ -3,6 +3,9 @@
   "version": "0.0.1",
   "private": true,
   "scripts": {
+    "postinstall": "pnpm db:generate",
+    "predev": "pnpm db:generate",
+    "prebuild": "pnpm db:generate",
     "build": "pnpm --recursive run build",
     "dev": "cross-env DID_YOU_KNOW=none pnpm --filter @cloudops/web --filter @cloudops/api --filter @cloudops/worker --parallel run dev",
     "dev:web": "cross-env DID_YOU_KNOW=none pnpm --filter @cloudops/web dev",
@@ -41,6 +44,7 @@
     "cookie-parser": "^1.4.7",
     "express": "^5.2.1",
     "ioredis": "^5.4.1",
+    "nodemailer": "^6.9.0",
     "pg": "^8.22.0",
     "rxjs": "^7.8.1"
   }
