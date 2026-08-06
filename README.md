@@ -33,7 +33,7 @@
 - ** Grafana Dashboard** — Dashboard dựng sẵn với Prometheus metrics
 - ** Dark Theme** — Giao diện tối với glassmorphism header và sidebar kiểu macOS
 
-## 🏗 Kiến trúc hệ thống
+##  Kiến trúc hệ thống
 
 ```mermaid
 graph TB
