@@ -10,11 +10,8 @@ COMPOSE_FILE="infra/docker/docker-compose.prod.yml"
 echo "==> Pulling latest changes..."
 git pull origin "$(git rev-parse --abbrev-ref HEAD)"
 
-echo "==> Building all images..."
+echo "==> Building Docker images (api, worker)..."
 docker compose -f "$COMPOSE_FILE" build --no-cache
-
-echo "==> Building web static files..."
-docker compose -f "$COMPOSE_FILE" run --rm web-builder
 
 echo "==> Starting services..."
 docker compose -f "$COMPOSE_FILE" up -d redis api worker nginx
@@ -37,4 +34,6 @@ echo "✓ Deployed successfully!"
 if [ -f .env.production ]; then
   source .env.production
   echo "  https://${DOMAIN:-your-domain.com}"
+  echo ""
+  echo "  ⚠  Run 'bash scripts/sync-web.sh' from local to upload frontend build"
 fi
