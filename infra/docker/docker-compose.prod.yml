@@ -1,0 +1,121 @@
+version: "3.8"
+
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: cloudops-redis
+    restart: unless-stopped
+    expose:
+      - "6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - cloudops-net
+
+  api:
+    build:
+      context: ../../
+      dockerfile: apps/api/Dockerfile
+    container_name: cloudops-api
+    restart: unless-stopped
+    expose:
+      - "3000"
+    env_file:
+      - ../../.env.production
+    environment:
+      - REDIS_URL=redis://redis:6379
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - cloudops-net
+
+  worker:
+    build:
+      context: ../../
+      dockerfile: apps/worker/Dockerfile
+    container_name: cloudops-worker
+    restart: unless-stopped
+    env_file:
+      - ../../.env.production
+    environment:
+      - REDIS_URL=redis://redis:6379
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - cloudops-net
+
+  web-builder:
+    build:
+      context: ../../
+      dockerfile: apps/web/Dockerfile
+    container_name: cloudops-web-builder
+    volumes:
+      - web-dist:/dist
+    networks:
+      - cloudops-net
+
+  certbot-init:
+    image: certbot/certbot
+    container_name: cloudops-certbot-init
+    profiles: ["certbot"]
+    entrypoint: >
+      sh -c "certbot certonly --webroot
+      --webroot-path=/var/www/certbot
+      --email $${CERTBOT_EMAIL}
+      --agree-tos --no-eff-email
+      -d $${DOMAIN}"
+    volumes:
+      - certbot-conf:/etc/letsencrypt
+      - certbot-www:/var/www/certbot
+    environment:
+      - CERTBOT_EMAIL
+      - DOMAIN
+    networks:
+      - cloudops-net
+
+  certbot-renew:
+    image: certbot/certbot
+    container_name: cloudops-certbot-renew
+    profiles: ["certbot"]
+    entrypoint: >
+      sh -c "certbot renew --quiet"
+    volumes:
+      - certbot-conf:/etc/letsencrypt
+      - certbot-www:/var/www/certbot
+    networks:
+      - cloudops-net
+
+  nginx:
+    image: nginx:alpine
+    container_name: cloudops-nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ../nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - certbot-conf:/etc/letsencrypt:ro
+      - certbot-www:/var/www/certbot:ro
+      - web-dist:/usr/share/nginx/html:ro
+    depends_on:
+      - api
+      - web-builder
+    networks:
+      - cloudops-net
+
+networks:
+  cloudops-net:
+    driver: bridge
+
+volumes:
+  redis_data:
+  web-dist:
+  certbot-conf:
+  certbot-www:
