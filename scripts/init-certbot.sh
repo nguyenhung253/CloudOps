@@ -25,9 +25,10 @@ NGINX_INIT="infra/nginx/nginx-init.conf"
 echo "==> Starting nginx with bootstrap config for certbot challenge..."
 cp "$NGINX_INIT" "$NGINX_CONF"
 
-# Build web first so install certbot compose context is ready
-docker compose -f "$COMPOSE_FILE" build web-builder
-docker compose -f "$COMPOSE_FILE" up -d web-builder
+# Create empty web-dist folder so nginx doesn't error
+mkdir -p infra/nginx/web-dist
+echo "<html><body>OK</body></html>" > infra/nginx/web-dist/index.html
+
 docker compose -f "$COMPOSE_FILE" up -d nginx
 sleep 3
 
